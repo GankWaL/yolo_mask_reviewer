@@ -4,7 +4,7 @@
 #   TAG=20260918 EPOCHS=15 LR=0.0001 DEV=1 scripts/round_bc.sh
 # 결과: $RUNS/round_<TAG>_f10, _f0 (weights/best.pt, results.csv), $DATA/gate_report_<TAG>.md
 set -uo pipefail
-PY=${PY:-$HOME/anaconda3/envs/pro/bin/python}
+PY=${PY:-$HOME/anaconda3/envs/yolo_mask_reviewer/bin/python}   # 통합 환경 (docs/install.md §3)
 TOOL=$(cd "$(dirname "$0")/.." && pwd)
 DATA=${DATA:-$HOME/jhw/data/SL}
 FIELD=${FIELD:-$DATA/field/20260918}

@@ -73,7 +73,7 @@ YOLO-seg 폴리곤은 구멍을 직접 표현하지 못해 기존 내보내기�
   - 보기 `J` 로 레이어 표시 전환. 목록 정렬 **"구멍 불일치 큰 순"** 은 정합 실패 → 불일치 픽셀 많은 순.
   - 버튼 **확정 구멍 빼기 / 모델 구멍 빼기 / CAD 구멍 빼기** 로 현재 인스턴스에서 해당 영역을 뺀다(되돌리기 가능).
     잘못 뚫린 건 브러시로 메우거나 `구멍 채우기` 로 되돌린다. 오른쪽 정보에 확정/모델만/CAD만 픽셀과 정합 yaw·score 가 보인다.
-  - 학습 PC 에서 만들기 (`yolo26` 환경, 모델은 `~/jhw/data/SL/runs/codes_y26s_holes_*/weights/best.pt`):
+  - 학습 PC 에서 만들기 (`yolo_mask_reviewer` 환경, 모델은 `~/jhw/data/SL/runs/codes_y26s_holes_*/weights/best.pt`):
     ```bash
     python scripts/build_holes_review.py ~/jhw/data/SL/reviewed_20260918 ~/jhw/data/SL/reviewed_20260919_valnew \
         --out ~/jhw/data/SL/holes_review_<날짜> --model <best.pt> --device 1
@@ -101,9 +101,9 @@ YOLO-seg 폴리곤은 구멍을 직접 표현하지 못해 기존 내보내기�
    추가해 2 를 다시 돌린다. `자동 → 현재 이미지 자동 라벨 삭제` 로 원본으로 되돌릴 수 있다.
    이 기능이 들어가기 전에 만든 자동 라벨은 툴을 닫고 `python3 -m mask_reviewer rescore DATASET` 으로 차이를 소급 계산한다
    (툴이 열려 있으면 `review_state.json` 을 서로 덮어쓴다).
-4. **내보내기** (Ctrl+E, 확정만, val 비율 0.1 이상) → **재학습** (yolo26 환경):
+4. **내보내기** (Ctrl+E, 확정만, val 비율 0.1 이상) → **재학습** (같은 환경, install.md §3):
    ```bash
-   conda activate yolo26
+   conda activate yolo_mask_reviewer
    python scripts/train_round.py OUT_DIR                       # 기준: SL_Inspection_Automation/models/yolo11s_best_20260326.pt
    python scripts/train_round.py OUT_DIR --extra-data /path/원본학습셋/data.yaml --epochs 30   # 원본 학습셋과 함께 (권장)
    ```
@@ -131,7 +131,7 @@ OUT/
 - 포함 상태 기본 = 확정만. 라벨은 편집본 > 자동 > 원본 순으로 유효한 것을 쓴다. val 분할은 제품코드별 층화(seed 고정).
   이미지는 복사/하드링크/심볼릭링크 선택.
 - 떨어진 조각이 여럿인 마스크는 ultralytics 방식으로 한 폴리곤에 잇는다(구멍은 무시).
-- `dataset.yaml` 의 `path` 는 이 PC 절대경로다. 다른 PC 로 옮기면 경로를 고친다 ([install.md](install.md) §4).
+- `dataset.yaml` 의 `path` 는 이 PC 절대경로다. 다른 PC 로 옮기면 경로를 고친다 ([install.md](install.md) §5).
 
 ## 원본 학습셋이 없을 때 — 의사 라벨 리허설 + 보수적 파인튜닝 (B+C, 2026-09-18)
 
@@ -140,7 +140,7 @@ OUT/
 
 ```bash
 ~/jhw/data/SL/fetch_field_data.sh 20260918          # 현장 PC 하루치 회수 (json → 로그 → raw → overlay, 재실행 시 이어받기)
-conda activate pro
+conda activate yolo_mask_reviewer
 python scripts/build_rehearsal_set.py ~/jhw/data/SL/field/20260918 --out ~/jhw/data/SL/rehearsal_20260918   # 리허설 + 게이트셋
 FIELD=... REH=... REV=~/jhw/data/SL/reviewed_20260918 TAG=20260918 scripts/round_bc.sh                          # 학습 2종 + 게이트
 ```
@@ -158,7 +158,7 @@ FIELD=... REH=... REV=~/jhw/data/SL/reviewed_20260918 TAG=20260918 scripts/round
 ## 현장 상시 회수 → 자동 제외 → SAM2 대표 전파 오토라벨 (field_autolabel, 2026-09-19)
 
 운영 모델이 웬만한 것은 잡는 단계에서, 현장 실패 프레임만 계속 가져와 사람 손 없이 학습 폴더까지 만드는 파이프라인이다.
-`scripts/field_autolabel.py` (env `pro`, SAM2 설치됨 — `pip install --no-build-isolation "SAM-2 @ git+https://github.com/facebookresearch/sam2.git"`, pip 이름이 `SAM-2` 다).
+`scripts/field_autolabel.py` (env `yolo_mask_reviewer`, install.md §2\~3 — SAM2 의 pip 이름은 `SAM-2` 다).
 
 ```bash
 scripts/field_autolabel.sh                      # 한 사이클 (어제·오늘). flock 으로 중복 실행 방지, 로그 ~/jhw/data/SL/autolabel/logs/<날짜>.log
@@ -193,7 +193,7 @@ python scripts/field_autolabel.py run 20260919  # 날짜 지정 / fetch·collect
 
 ## 자동 재학습 (auto_retrain, 4시간 cron, 2026-09-19)
 
-field_autolabel 이 모은 ok 데이터로 직전 기준 모델에서 이어 파인튜닝하고, 게이트를 통과하면 다음 기준 모델로 승격한다 (`scripts/auto_retrain.py`, env `pro`).
+field_autolabel 이 모은 ok 데이터로 직전 기준 모델에서 이어 파인튜닝하고, 게이트를 통과하면 다음 기준 모델로 승격한다 (`scripts/auto_retrain.py`, env `yolo_mask_reviewer`).
 
 ```bash
 scripts/auto_retrain.sh                    # 한 번 (새 ok 데이터가 20장 미만이면 건너뜀)

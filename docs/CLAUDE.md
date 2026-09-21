@@ -10,6 +10,10 @@
   검수 PC = `ssh REVIEW_PC`(jhw@172.30.1.90, 클론 `~/yolo_mask_reviewer`, 데이터 `~/jhw/data/SL/`). 검수 데이터는 `scripts/review_sync.sh` 로 오간다.
 - 코드를 고쳐 검수 PC 에 반영해야 하면: 사용자가 commit·push 한 뒤 `ssh REVIEW_PC 'cd ~/yolo_mask_reviewer && git pull'`. 검수 PC 에서 GUI 가 떠 있으면 다시 띄워야 반영된다.
 
+## 환경
+- 이 PC 의 conda 환경은 `yolo_mask_reviewer` 하나다 (GUI + SAM2 + ultralytics 학습·오토라벨). 옛 `pro`/`yolo26` 환경으로 스크립트를 돌리지 않는다. `scripts/*.sh` 의 `PY` 기본값이 이 환경을 가리킨다.
+- ultralytics 를 다시 설치하면 일반 opencv-python 이 딸려와 PyQt5 와 충돌한다 → headless 로 되돌린다 (`docs/install.md` §3).
+
 ## 문서 배치
 - `README.md` 는 소개와 빠른 시작만. 설치·동기화·테스트는 `docs/install.md`, 화면·도구·파이프라인 사용법은 `docs/manual.md`.
 - 기능을 추가·변경하면 `docs/manual.md` 의 해당 절을 같이 고친다 (단축키 표, 인스턴스 연산 등).

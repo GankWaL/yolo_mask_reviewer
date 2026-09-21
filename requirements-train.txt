@@ -1,0 +1,9 @@
+# 학습·오토라벨·게이트 스크립트(scripts/)용 선택 의존성. GUI 만 쓰면 필요 없다.
+#   pip install -r requirements-sam2.txt && pip install --no-build-isolation "SAM-2 @ git+https://github.com/facebookresearch/sam2.git"
+#   pip install -r requirements-train.txt
+# ultralytics 는 일반 opencv-python 을 끌어오는데 그 안의 Qt 가 PyQt5 와 충돌한다. 설치 뒤 반드시 headless 로 되돌린다:
+#   pip uninstall -y opencv-python opencv-python-headless && pip install --force-reinstall --no-deps "opencv-python-headless>=4.5,<5"
+# DINOv2(제외 분류기·대표 선택)는 torch.hub 로 받으므로 별도 패키지가 없다 (~/.cache/torch/hub).
+ultralytics==8.4.157   # YOLO26-seg(관통 구멍 build_holes_review) 지원 버전. 8.3.x 에는 yolo26 모델 정의가 없다
+scikit-learn>=1.5,<2
+scipy>=1.10,<2

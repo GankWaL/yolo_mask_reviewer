@@ -2,7 +2,7 @@
 # 현장 미탐 상시 회수·오토라벨 한 사이클 (cron/loop 용). 동시 실행 방지(flock), 로그는 ~/jhw/data/SL/autolabel/logs/<날짜>.log
 #   */30 * * * * ~/jhw/yolo_mask_reviewer/scripts/field_autolabel.sh          # crontab 예
 #   ~/jhw/yolo_mask_reviewer/scripts/field_autolabel.sh 20260919 20260920      # 날짜 지정
-PY=${PY:-$HOME/anaconda3/envs/pro/bin/python}
+PY=${PY:-$HOME/anaconda3/envs/yolo_mask_reviewer/bin/python}   # 통합 환경 (docs/install.md §3)
 TOOL=$(cd "$(dirname "$0")/.." && pwd)
 LOGD=${AL_STATE:-$HOME/jhw/data/SL/autolabel}/logs
 mkdir -p "$LOGD"

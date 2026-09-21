@@ -19,6 +19,15 @@ from .dataset import Instance
 MIN_AREA = 64.0   # 이보다 작은 전파 결과는 버린다 (px)
 
 
+def _fill(mask):
+    """구멍을 채운 사본 (바깥 윤곽 비교용)."""
+    out = np.zeros(mask.shape, np.uint8)
+    cs, _ = cv2.findContours(mask.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    if cs:
+        cv2.fillPoly(out, cs, 1)
+    return out.astype(bool)
+
+
 class Sam2Propagator:
     def __init__(self, ckpt_path=None, device=None):
         import torch
@@ -118,6 +127,10 @@ def propagate_dataset(ds, codes=None, max_exemplars=3, include_auto=True, max_ta
             if tgt is None:
                 continue
             h, w = tgt.shape[:2]
+            # 대표 선택: SAM2 객체 점수는 거의 전부 1.0 이라 변별력이 없다 (2026-09-21 실험). 원본 라벨이 있으면
+            # 전파 결과와 원본을 둘 다 채운(구멍 무시) 바깥 IoU 가 큰 대표를 고르고, 기록 점수(score)는 그 IoU 로 둔다.
+            orig_u = ds.original_union(stem, w, h)
+            orig_filled = _fill(orig_u) if orig_u is not None and orig_u.any() else None
             best = None
             for ex in exs:
                 if ex not in ref_cache:
@@ -126,7 +139,14 @@ def propagate_dataset(ds, codes=None, max_exemplars=3, include_auto=True, max_ta
                 res = prop.propagate(ref_img, ref_insts, tgt, ref_key=ex)
                 if not res:
                     continue
-                sc = float(np.mean([r[2] for r in res]))
+                if orig_filled is not None:
+                    u = np.zeros((h, w), bool)
+                    for _, m, _ in res:
+                        u |= m
+                    fu = _fill(u)
+                    sc = float((fu & orig_filled).sum() / max((fu | orig_filled).sum(), 1))
+                else:
+                    sc = float(np.mean([r[2] for r in res]))
                 if best is None or sc > best[0]:
                     best = (sc, ex, res)
             if include_empty_edited and ds.reviewed_is_empty(stem):

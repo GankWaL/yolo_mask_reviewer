@@ -1,7 +1,7 @@
 # 설치와 동기화
 
-실행 의존성은 python 3.10 + PyQt5, OpenCV(headless), numpy, PyYAML (`requirements.txt`). ultralytics 는 필요 없다
-(학습·오토라벨 스크립트는 별도 conda 환경 `pro`/`yolo26` 에서 돈다 — [manual.md](manual.md)).
+실행 의존성은 python 3.10 + PyQt5, OpenCV(headless), numpy, PyYAML (`requirements.txt`). GUI 만 쓰면 여기까지면 된다.
+SAM2 도구(§2)와 학습·오토라벨 스크립트(§3)는 같은 conda 환경 `yolo_mask_reviewer` 에 얹는다 (2026-09-21 부터 학습 PC 도 별도 `pro` 환경 대신 이 환경 하나로 통합).
 
 ## 1. 환경
 
@@ -28,7 +28,20 @@ mkdir -p checkpoints && wget -P checkpoints https://dl.fbaipublicfiles.com/segme
 메뉴 `파일 → SAM2 체크포인트 선택…` 으로 바꿀 수 있다. GPU 가 있으면 자동으로 cuda 를 쓴다.
 이미지 임베딩은 `<데이터셋>/.sam2_cache/<stem>.pt` 에 캐시되어 같은 이미지를 다시 열면 재계산하지 않는다 (이미지당 약 1\~2MB).
 
-## 3. 실행 확인
+## 3. 학습·오토라벨 스크립트 (선택)
+
+`scripts/`(train_round·eval_gates·field_autolabel·auto_retrain·build_holes_review …)를 돌리려면 §2 의 torch·SAM2 위에 ultralytics 등을 더 넣는다.
+
+```bash
+conda activate yolo_mask_reviewer
+pip install -r requirements-train.txt
+# ultralytics 가 끌어온 일반 opencv-python 은 PyQt5 와 Qt 플러그인이 충돌한다 → headless 로 되돌린다
+pip uninstall -y opencv-python opencv-python-headless && pip install --force-reinstall --no-deps "opencv-python-headless>=4.5,<5"
+```
+
+`scripts/*.sh` 는 `PY`(기본 `~/anaconda3/envs/yolo_mask_reviewer/bin/python`)로 이 환경의 파이썬을 직접 부르므로 cron 에서도 activate 없이 돈다. 다른 환경을 쓰려면 `PY=... scripts/field_autolabel.sh`.
+
+## 4. 실행 확인
 
 ```bash
 conda activate yolo_mask_reviewer
@@ -36,7 +49,7 @@ conda activate yolo_mask_reviewer
 python3 -m mask_reviewer stats DATASET     # GUI 없이 검수 현황
 ```
 
-## 4. 다른 PC 와 맞추기 — 코드는 git, 나머지는 rsync (2026-09-21)
+## 5. 다른 PC 와 맞추기 — 코드는 git, 나머지는 rsync (2026-09-21)
 
 - **코드**는 GitHub `git@github.com:GankWaL/yolo_mask_reviewer.git`(`main`) 으로만 맞춘다. 처음은 `git clone`, 이후는 `git pull`.
   rsync 로 코드를 밀거나 되가져오지 않는다. 다른 PC 에서 코드를 고쳤으면 거기서 commit·push 하고 이쪽에서 pull 한다 (양쪽 수정은 git 충돌로 드러난다).
@@ -66,15 +79,15 @@ ssh HOST "sed -i 's|^path: .*|path: /받는/PC/절대경로/DST_DIR|' DST_DIR/da
 ```
 
 - 데이터에 `--delete` 는 붙이지 않는다. 내보내기 폴더를 통째로 교체할 때만 붙인다.
-- 검수 PC 가 처음이면 위 1\~2 절대로 환경을 만들고 체크포인트를 rsync 한다.
+- 검수 PC 가 처음이면 위 1\~2 절대로 환경을 만들고 체크포인트를 rsync 한다 (검수만 하면 §3 은 필요 없다).
 
-## 5. 테스트
+## 6. 테스트
 
 ```bash
 MR_TEST_DS=/path/to/small_dataset python3 tests/test_maskops.py        # 왕복 IoU·편집 연산·내보내기
 QT_QPA_PLATFORM=offscreen MR_TEST_DS=... python3 tests/test_gui_smoke.py [스크린샷 폴더]
 ```
 GUI 스모크는 꼭짓점 편집·썸네일·대표 지정까지 확인하고, torch/sam2 와 체크포인트가 있으면 SAM2 추론과 대표 전파도 돈다 (없으면 건너뜀).
-`scripts/` 는 yolo26 환경에서 소규모 데이터로 직접 돌려 확인한다 (`train_round.py --epochs 1`, `relabel_with_model.py --limit 4`).
+`scripts/` 는 같은 환경에서 소규모 데이터로 직접 돌려 확인한다 (`train_round.py --epochs 1`, `relabel_with_model.py --limit 4`).
 `test_maskops.py` 의 내보내기 검사는 `labels_reviewed/` 가 비어 있는 원본 데이터셋을 가정한다 (검수 중인 데이터셋을 주면 편집본 수 검사가 실패한다).
 실데이터 라벨 왕복(폴리곤→마스크→폴리곤) IoU 최소 0.995, 꼭짓점 평균 259 → 75.

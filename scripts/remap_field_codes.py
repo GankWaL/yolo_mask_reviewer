@@ -7,7 +7,8 @@
   SRC      images/<split>, labels/<split> 이 있는 폴더. `:` 뒤에 split 매핑을 주면 그 split 만 옮긴다
            (예 `reviewed_20260919_valnew:val=val`). 생략하면 train→train, val→val.
 
-파일명(stem)의 12자리 코드(`_XXXXXXXXXXXX`)를 클래스로 쓴다. 한 프레임의 인스턴스는 전부 같은 코드(한 로트 = 한 제품)로 본다.
+코드는 SRC/export_manifest.csv 의 code 열(검수 툴에서 재지정한 코드 반영)을 우선 쓰고, 없으면 파일명(stem)의 12자리
+코드(`_XXXXXXXXXXXX`)를 쓴다. 한 프레임의 인스턴스는 전부 같은 코드(한 로트 = 한 제품)로 본다.
 코드가 없거나 목록에 없는 프레임은 건너뛴다. 이미지는 하드링크, 라벨은 첫 열만 바꿔 쓴다.
 """
 import argparse
@@ -38,6 +39,11 @@ def main():
         src, _, maps = spec.partition(':')
         maps = dict(m.split('=') for m in maps.split(',')) if maps else {'train': 'train', 'val': 'val'}
         tag = os.path.basename(os.path.normpath(src))
+        manifest_code = {}
+        mp = os.path.join(src, 'export_manifest.csv')
+        if os.path.exists(mp):
+            with open(mp, newline='', encoding='utf-8') as f:
+                manifest_code = {r['stem']: r.get('code', '') for r in csv.DictReader(f)}
         for ssp, dsp in maps.items():
             idir = os.path.join(src, 'images', ssp)
             if not os.path.isdir(idir):
@@ -46,8 +52,10 @@ def main():
             os.makedirs(os.path.join(a.out, 'labels', dsp), exist_ok=True)
             for fn in sorted(os.listdir(idir)):
                 stem, ext = os.path.splitext(fn)
-                m = CODE_RE.search(stem)
-                code = m.group(1) if m else None
+                code = manifest_code.get(stem) or None
+                if code is None:
+                    m = CODE_RE.search(stem)
+                    code = m.group(1) if m else None
                 lab = os.path.join(src, 'labels', ssp, stem + '.txt')
                 if code is None or code not in cid:
                     st = 'skip_nocode' if code is None else 'skip_unknown_code'
