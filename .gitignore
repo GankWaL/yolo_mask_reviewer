@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+checkpoints/
+runs/
+/*.pt
+.thumb_cache/
+.sam2_cache/
+.pytest_cache/

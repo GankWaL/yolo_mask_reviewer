@@ -1,0 +1,9 @@
+# conda env create -f environment.yml && conda activate yolo_mask_reviewer
+name: yolo_mask_reviewer
+channels:
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - -r requirements.txt

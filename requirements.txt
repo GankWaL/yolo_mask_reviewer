@@ -1,0 +1,6 @@
+# yolo_mask_reviewer 실행 의존성 (python 3.10 기준, ultralytics 불필요)
+# opencv 는 headless 를 쓴다: 일반 opencv-python 은 자체 Qt 를 같이 담고 있어 PyQt5 와 xcb 플러그인이 충돌한다.
+numpy>=1.21,<3
+opencv-python-headless>=4.5,<5
+PyQt5>=5.15,<5.16
+PyYAML>=5.4,<7
