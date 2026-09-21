@@ -199,7 +199,7 @@ def run(ds_src, shot_dir=None):
                 return
         raise AssertionError(stem)
     codes = w.ds.codes()
-    ex = max(w.ds.stems, key=lambda t: codes[w.ds.code(t)])   # 이미지가 가장 많은 제품의 한 장을 대표로
+    ex = max((t for t in w.ds.stems if t != s0), key=lambda t: codes[w.ds.code(t)])   # 이미지가 가장 많은 제품의 한 장을 대표로 (s0 는 마지막 내보내기 검사용 확정분이라 제외)
     goto(ex)
     w.toggle_exemplar()
     assert w.ds.state.exemplar(ex) and w.ds.state.status(ex) == 'ok' and w.ds.is_edited(ex)
@@ -244,6 +244,18 @@ def run(ds_src, shot_dir=None):
         assert w.ds.set_code(tgt, ' ' + other.lower() + ' ') and w.ds.code(tgt) == other   # 공백·소문자 정규화
         w.ds.set_code(tgt, '')                             # 비우면 원본
         assert w.ds.code(tgt) == orig_code
+        # 제품코드 일괄 변경: 이미지 목록에서 Shift+클릭으로 2장 이상 선택 → 한 번에 덮어쓰기 → 각자 원본으로
+        goto(tgt)
+        r0 = w.list.currentRow()
+        r1 = min(r0 + 2, w.list.count() - 1)
+        QTest.mouseClick(w.list.viewport(), Qt.LeftButton, Qt.ShiftModifier, w.list.visualItemRect(w.list.item(r1)).center())
+        stems_sel = w._selected_stems()
+        assert len(stems_sel) == r1 - r0 + 1 and tgt in stems_sel, stems_sel
+        assert w.apply_code(other, stems_sel) and all(w.ds.code(t) == other for t in stems_sel)
+        assert sorted(w._selected_stems()) == sorted(stems_sel), '일괄 변경 뒤 선택 유지 실패'
+        assert not w.apply_code(other, stems_sel)                       # 전부 같은 값이면 변화 없음
+        assert w.apply_code(None, stems_sel) and all(not w.ds.state.code(t) for t in stems_sel)   # 각자 원본으로
+        w.list.clearSelection()
         goto(tgt)
         assert len(w.instances) >= 1 and '자동' in w.info.text()
         # 확정하면 자동 라벨이 그대로 유효 (편집본 없음)

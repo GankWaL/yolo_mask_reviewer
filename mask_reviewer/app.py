@@ -231,7 +231,8 @@ class MainWindow(QMainWindow):
         sr.addWidget(self.sort_combo)
         ll.addLayout(sr)
         self.list = QListWidget()
-        self.list.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.list.setSelectionMode(QAbstractItemView.ExtendedSelection)   # 드래그·Shift/Ctrl+클릭 다중 선택 → 제품코드 일괄 변경
+        self.list.setToolTip('드래그·Shift/Ctrl+클릭으로 여러 장을 고르면 [제품코드 변경…] 이 선택 전부에 적용된다')
         self.list.setIconSize(QSize(THUMB_PX, THUMB_PX))
         self.list.setUniformItemSizes(True)   # 모든 행을 같은 높이로 (썸네일이 늦게 와도 행이 안 흔들림)
         self.list.currentItemChanged.connect(self._on_list_changed)
@@ -276,7 +277,8 @@ class MainWindow(QMainWindow):
         crow.addStretch(1)
         self.code_btn = QPushButton('제품코드 변경…')
         self.code_btn.setToolTip('이미지에 적힌(manifest·파일명) 제품코드가 틀렸을 때 고친다. '
-                                 '목록에 있는 12자리 코드를 고르거나 직접 입력. review_state.json 에 저장되며 필터·내보내기·전파에 반영')
+                                 '목록에 있는 12자리 코드를 고르거나 직접 입력. review_state.json 에 저장되며 필터·내보내기·전파에 반영.\n'
+                                 '왼쪽 목록에서 여러 장을 선택(드래그·Shift/Ctrl+클릭)했으면 선택 전부에 한 번에 적용')
         self.code_btn.clicked.connect(self.edit_code)
         crow.addWidget(self.code_btn)
         gil.addLayout(crow)
@@ -519,51 +521,81 @@ class MainWindow(QMainWindow):
         self.code_filter.setCurrentIndex(max(i, 0))
         self.code_filter.blockSignals(False)
 
+    def _selected_stems(self):
+        """이미지 목록에서 선택된 stem 들 (목록 순서). 선택이 없으면 현재 이미지."""
+        stems = [self.list.item(i).data(Qt.UserRole) for i in range(self.list.count()) if self.list.item(i).isSelected()]
+        if not stems and self.stem is not None:
+            stems = [self.stem]
+        return stems
+
+    def _select_stems(self, stems):
+        """목록 갱신 뒤 다중 선택을 되살린다 (현재 행은 그대로)."""
+        want = set(stems)
+        self.list.blockSignals(True)
+        for i in range(self.list.count()):
+            it = self.list.item(i)
+            if it.data(Qt.UserRole) in want:
+                it.setSelected(True)
+        self.list.blockSignals(False)
+
     def edit_code(self):
-        """현재 이미지의 제품코드를 고친다: 데이터셋에 있는 12자리 코드 선택 또는 직접 입력."""
+        """선택된 이미지(없으면 현재 이미지)의 제품코드를 고친다: 데이터셋에 있는 12자리 코드 선택 또는 직접 입력."""
         if self.ds is None or self.stem is None:
             return
-        cur, orig = self.ds.code(self.stem), self.ds.orig_code(self.stem)
+        stems = self._selected_stems()
+        origs = {self.ds.orig_code(t) for t in stems}
+        curs = {self.ds.code(t) for t in stems}
         d = QDialog(self)
         d.setWindowTitle('제품코드 변경')
         f = QFormLayout(d)
-        f.addRow('이미지', QLabel(self.stem))
-        f.addRow('원본 코드', QLabel(orig or '(없음)'))
+        f.addRow('이미지', QLabel(self.stem if len(stems) == 1 else f'{len(stems)}장 선택 ({stems[0]} …)'))
+        f.addRow('원본 코드', QLabel((next(iter(origs)) or '(없음)') if len(origs) == 1 else f'(여러 값: {len(origs)}종)'))
         combo = QComboBox()
         combo.setEditable(True)
         combo.setInsertPolicy(QComboBox.NoInsert)
         for code in sorted(c for c in self.ds.codes() if is_full_code(c)):
             combo.addItem(code)
-        combo.setCurrentText(cur)
+        combo.setCurrentText(self.ds.code(self.stem) if len(curs) != 1 else next(iter(curs)))
         combo.lineEdit().selectAll()
         combo.setToolTip('목록: 이 데이터셋에 있는 12자리 제품코드. 직접 입력도 가능 (대문자로 저장)')
         f.addRow('제품코드', combo)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         reset = bb.addButton('원본으로', QDialogButtonBox.ResetRole)
-        reset.setEnabled(bool(self.ds.state.code(self.stem)))
-        reset.clicked.connect(lambda: (combo.setCurrentText(orig), d.accept()))
+        reset.setEnabled(any(self.ds.state.code(t) for t in stems))
+        reset.setToolTip('각 이미지를 자기 원본 코드(manifest·파일명)로 되돌린다')
+        do_reset = []
+        reset.clicked.connect(lambda: (do_reset.append(True), d.accept()))
         bb.accepted.connect(d.accept)
         bb.rejected.connect(d.reject)
         f.addRow(bb)
         if d.exec_() != QDialog.Accepted:
             return
-        self.apply_code(combo.currentText())
+        self.apply_code(None if do_reset else combo.currentText(), stems)
 
-    def apply_code(self, code):
-        code = (code or '').strip().upper()
-        if not code:
-            QMessageBox.warning(self, '제품코드 변경', '제품코드를 입력하세요.')
-            return False
-        if not is_full_code(code) and code != self.ds.orig_code(self.stem):
-            if QMessageBox.question(self, '제품코드 변경', f'"{code}" 는 12자리 제품코드 형식(예: 10H332000NT9)이 아닙니다. 그래도 저장할까요?') \
-                    != QMessageBox.Yes:
+    def apply_code(self, code, stems=None):
+        """stems(없으면 현재 이미지)의 제품코드를 code 로. code 가 None 이면 각자 원본으로. 하나라도 바뀌면 True."""
+        stems = list(stems) if stems else [self.stem]
+        if code is not None:
+            code = (code or '').strip().upper()
+            if not code:
+                QMessageBox.warning(self, '제품코드 변경', '제품코드를 입력하세요.')
                 return False
-        if not self.ds.set_code(self.stem, code):
+            if not is_full_code(code) and any(code != self.ds.orig_code(t) for t in stems):
+                if QMessageBox.question(self, '제품코드 변경', f'"{code}" 는 12자리 제품코드 형식(예: 10H332000NT9)이 아닙니다. 그래도 저장할까요?') \
+                        != QMessageBox.Yes:
+                    return False
+        n = sum(1 for t in stems if self.ds.set_code(t, code if code is not None else self.ds.orig_code(t)))
+        if not n:
             return False
         self._refresh_code_filter()
         self.refresh_list()
+        if len(stems) > 1:
+            self._select_stems(stems)
         self._refresh_info()
-        self.say(f'제품코드 {self.stem}: {code}' + ('' if self.ds.state.code(self.stem) else ' (원본)'))
+        if len(stems) == 1:
+            self.say(f'제품코드 {self.stem}: {self.ds.code(self.stem)}' + ('' if self.ds.state.code(self.stem) else ' (원본)'))
+        else:
+            self.say(f'제품코드 {len(stems)}장 → ' + (code if code is not None else '각자 원본') + f' ({n}장 변경)')
         return True
 
     # ================================================================ 썸네일 (legacy 툴 방식: 캐시 + 백그라운드 생성)
