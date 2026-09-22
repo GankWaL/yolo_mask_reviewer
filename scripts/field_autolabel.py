@@ -5,6 +5,9 @@
   1. fetch     현장 PC save_pose_debug/<날짜>/ 에서 실패 프레임만 골라 회수 (fitfail = 코드 raw 인데 json 없음, nodet_* = 검출 없음 캡처).
                <stem>_skip.json 이 있는 프레임(인식기가 언로딩 오류·CAP 으로 표시, SLIA §21-cc)은 받지 않는다.
                2분 이내 파일은 아직 처리 중일 수 있어 건너뛴다. 이미 받은 파일은 건너뛴다.
+  1b. newcodes 인식 성공 프레임(json 있음)의 제품코드 중 지금까지 모은 데이터셋(AL_KNOWN_DS + DS)에 없는 12자리 코드를 찾아
+               코드당 최대 AL_NEWCODE_CAP(60)장을 시간 균등으로 회수하고, json 의 런타임 마스크(mask_rle)를 ROI 로 잘라 라벨로 써서
+               DS 에 넣는다(reason newcode, 보류 상태 — 검수 PC 에서 ★ 대표를 만들어야 함). 누적 수는 $AL_STATE/newcodes.json.
   2. collect   새로 받은 프레임만 심볼릭링크 스테이징에 모아 collect_yolo_hard_cases.py 로 누적 데이터셋(DS)에 추가
                (ROI 크롭 + 현장 모델 의사 라벨 + manifest). 사이클당 제품별 --max-per-code, (날짜, 제품) 누적 상한 AL_DAILY_CAP(60).
   3. exclude   기준 데이터(현장 manifest 2,423 = 확정 export 2,179 + 검수에서 빠진 244)로 학습한 제외 분류기
@@ -67,7 +70,9 @@ CFG = dict(
     roi=E('AL_ROI', '605,190,685,685'),
     # 잘못 지정된 ★ (뒤집힌 제품 2, 캡 gate 프레임 2) — 검수 PC 에서 ★ 를 고치면 비운다
     exemplar_drop=[x for x in E('AL_EXEMPLAR_DROP', '').split(',') if x],   # 2026-09-19 재검수 반영 후 비움 (검수 PC 가 ★ 를 직접 정리)
-    device=E('AL_DEVICE', '0'),
+    device=E('AL_DEVICE', '1'),   # CUDA_DEVICE_ORDER=PCI_BUS_ID 기준 1 = RTX 4070 Ti (0 = PRO 5000 은 다른 사용자, 2026-09-22)
+    known_ds=[x for x in E('AL_KNOWN_DS', f'{HOME}/jhw/data/SL/field_data_hole_all_20260921,{HOME}/jhw/data/SL_under_predict').split(',') if x],
+    newcode_cap=int(E('AL_NEWCODE_CAP', '60')),
 )
 SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=30', '-o', 'ConnectTimeout=20']
 CODE_RE = re.compile(r'^\d{5}_([0-9A-Z]{12})_raw\.png$')
@@ -148,6 +153,136 @@ def fetch(dates):
         log(f'  받음 raw {len(got)}')
         new_files += got
     return new_files
+
+
+# ----------------------------------------------------------------------------- 1b. newcodes
+JSON_RE = re.compile(r'^(.+)/(\d{5})_([0-9A-Z]{12})\.json$')
+SORT_TO_CLS = {'SCALP': 'scalp', 'HSG': 'hsg', 'H/CVR': 'h_cvr', 'B/CVR': 'b_cvr', 'CAP': 'cap'}
+
+
+def known_codes(ds):
+    """지금까지 모은 데이터셋(AL_KNOWN_DS)과 DS 자체에 한 장이라도 있는 12자리 코드 (재지정 코드 포함)."""
+    from mask_reviewer.dataset import Dataset, is_full_code
+    codes = set()
+    for root in CFG['known_ds'] + [ds.root]:
+        if not os.path.isdir(os.path.join(root, 'images')):
+            continue
+        try:
+            d = ds if os.path.abspath(root) == os.path.abspath(ds.root) else Dataset(root)
+        except Exception as e:
+            log(f'newcodes: {root} 열기 실패 ({e})')
+            continue
+        codes |= {c for c in d.codes() if is_full_code(c)}
+    return codes
+
+
+def uniform_pick(seq, n):
+    if n <= 0 or not seq:
+        return []
+    if len(seq) <= n:
+        return list(seq)
+    idx = np.linspace(0, len(seq) - 1, n).round().astype(int)
+    return [seq[i] for i in sorted(set(idx.tolist()))]
+
+
+def newcodes(dates, ds):
+    """미수집 제품코드 자동 수집: 성공 프레임 json 목록에서 새 코드를 찾아 코드당 상한까지 회수 → ROI 크롭 + 런타임 마스크 라벨 → DS.
+    반환: 추가한 stem 수."""
+    from mask_reviewer import maskops
+    sys.path.insert(0, HERE)
+    from build_record_yolo import rle_decode
+    known = known_codes(ds)
+    cnt_path = os.path.join(CFG['state_dir'], 'newcodes.json')
+    counts = json.load(open(cnt_path)) if os.path.isfile(cnt_path) else {}
+    have = ds.codes()
+    rx, ry, rw, rh = [int(v) for v in CFG['roi'].split(',')]
+    name_to_id = {v: k for k, v in ds.names.items()}
+    rows = load_manifest(ds.root)
+    existing = {r['stem'] for r in rows}
+    n_added = 0
+    found = {}
+    for d in dates:
+        cmd = SSH + [CFG['host'], f"cd {CFG['remote']}/{d} 2>/dev/null && find . -type f -mmin +2 -name '*.json'"]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        if r.returncode != 0 and not r.stdout:
+            log(f'newcodes {d}: 원격 폴더 없음/접속 실패')
+            continue
+        by_code = collections.defaultdict(list)
+        for l in r.stdout.splitlines():
+            m = JSON_RE.match(l.strip()[2:] if l.startswith('./') else l.strip())
+            if not m or os.path.basename(m.group(1)).startswith('nodet_'):
+                continue
+            by_code[m.group(3)].append(m.group(0) if not l.startswith('./') else l.strip()[2:])
+        new = {c: sorted(v) for c, v in by_code.items() if c not in known}
+        if not new:
+            log(f'newcodes {d}: 성공 프레임 코드 {len(by_code)}종, 새 코드 없음')
+            continue
+        want = []
+        picks = {}
+        for c, lst in sorted(new.items()):
+            budget = CFG['newcode_cap'] - have.get(c, 0) - counts.get(c, {}).get('n', 0)
+            pk = uniform_pick(lst, budget)
+            picks[c] = pk
+            for js in pk:
+                want += [js, js[:-5] + '_raw.png']
+        log(f'newcodes {d}: 새 코드 {len(new)}종 {sorted(new)} → 회수 {sum(len(v) for v in picks.values())}장')
+        if not want:
+            continue
+        dest = os.path.join(CFG['field_dir'], d, 'save_pose_debug')
+        os.makedirs(dest, exist_ok=True)
+        tmp = tempfile.mkdtemp(prefix='al_newcode_')
+        lp = os.path.join(tmp, 'files')
+        with open(lp, 'w') as f:
+            f.write('\n'.join(want) + '\n')
+        p = subprocess.run(['rsync', '-a', '--partial', '--ignore-missing-args', f'--files-from={lp}', '-e', ' '.join(SSH),
+                            f"{CFG['host']}:{CFG['remote']}/{d}/", dest + '/'], capture_output=True, text=True)
+        shutil.rmtree(tmp, ignore_errors=True)
+        if p.returncode not in (0, 24):
+            log(f'  rsync rc={p.returncode}: {p.stderr.strip()[:120]}')
+        for c, pk in picks.items():
+            for js in pk:
+                jp = os.path.join(dest, js)
+                ip = jp[:-5] + '_raw.png'
+                if not (os.path.isfile(jp) and os.path.isfile(ip)):
+                    continue
+                run_dir = os.path.basename(os.path.dirname(js))
+                stem = f'{d}_{run_dir}_{os.path.basename(js)[:-5]}'
+                if stem in existing or stem in ds.stems:
+                    continue
+                try:
+                    meta = json.load(open(jp))
+                    img = cv2.imread(ip)
+                    m = rle_decode(meta['mask_rle'])
+                except Exception as e:
+                    log(f'  {stem}: json/마스크 읽기 실패 ({e})')
+                    continue
+                crop = img[ry:ry + rh, rx:rx + rw]
+                mc = m[ry:ry + rh, rx:rx + rw] > 0
+                cls = name_to_id.get(SORT_TO_CLS.get(str(meta.get('large_sort', '')).upper(), ''), None)
+                if cls is None or mc.sum() < 64:
+                    continue
+                line = maskops.mask_to_yolo_line(cls, mc, rw, rh, keep_holes=ds.keep_holes)
+                if not line:
+                    continue
+                cv2.imwrite(os.path.join(ds.root, 'images', stem + '.png'), crop)
+                with open(os.path.join(ds.root, 'labels', stem + '.txt'), 'w', encoding='utf-8') as f:
+                    f.write(line + '\n')
+                rows.append(dict(stem=stem, source=f'save_pose_debug/{d}/{js[:-5]}_raw.png', code=c, reason='newcode', n_det=1,
+                                 top_cls=ds.names[cls], top_conf=round(float(meta.get('fitness', 0) or 0), 3),
+                                 top_maskpx=int(mc.sum()), top_fill=''))
+                ds.state.set(stem, status='pending', note='newcode 자동 수집 — 미수집 제품, ★ 대표 필요')
+                existing.add(stem)
+                counts.setdefault(c, {'n': 0, 'first': d})['n'] += 1
+                found[c] = found.get(c, 0) + 1
+                n_added += 1
+    if n_added:
+        write_manifest(ds.root, rows)
+        ds.stems = sorted(set(ds.stems) | existing)   # 같은 프로세스의 다음 단계가 새 stem 을 보도록
+        ds._img_path.update({s_: os.path.join(ds.root, 'images', s_ + '.png') for s_ in existing if s_ not in ds._img_path})
+    os.makedirs(CFG['state_dir'], exist_ok=True)
+    json.dump(counts, open(cnt_path, 'w'), ensure_ascii=False, indent=1)
+    log(f'newcodes: 추가 {n_added}장 {dict(found)} (누적 코드 {len(counts)}종)')
+    return n_added
 
 
 # ----------------------------------------------------------------------------- 2. collect
@@ -748,7 +883,7 @@ def open_ds():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('cmd', choices=['run', 'fetch', 'collect', 'refit', 'exclude', 'propagate', 'export', 'status', 'redo'],
+    ap.add_argument('cmd', choices=['run', 'fetch', 'newcodes', 'collect', 'refit', 'exclude', 'propagate', 'export', 'status', 'redo'],
                     help='redo: 자동 판정(auto-ok/auto-pending/auto-none) 이미지를 보류로 되돌려 전파·내보내기를 다시 (사람 판정·자동 제외는 유지)')
     ap.add_argument('dates', nargs='*', help='YYYYMMDD (기본 어제·오늘)')
     ap.add_argument('--max-per-code', type=int, default=30, help='collect: 사이클당 제품별 상한')
@@ -760,9 +895,17 @@ def main():
     t0 = time.time()
     if a.cmd == 'refit':
         return refit()
+    if a.cmd == 'newcodes':
+        newcodes(dates, open_ds())
+        return 0
     if a.cmd in ('run', 'fetch', 'collect'):
         if a.cmd != 'collect':
             fetch(dates)
+            if a.cmd == 'run':
+                try:
+                    newcodes(dates, open_ds())
+                except Exception as e:
+                    log(f'newcodes 실패 (계속 진행): {e}')
         if a.cmd == 'fetch':
             return 0
         # 대상 = 로컬에 있는 해당 날짜 실패 프레임 전부. collector 가 DS 에 이미 있는 stem 을 건너뛰고,

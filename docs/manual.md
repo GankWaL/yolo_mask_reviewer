@@ -234,6 +234,15 @@ python scripts/field_autolabel.py run 20260919  # 날짜 지정 / fetch·collect
   `pull-bundle <이름>` → `scripts/apply_review_bundle.py <묶음>`(검수셋·자동셋에 반영) → `exemplars/` 삭제 → `refit` → `redo` → `push-ref`(검수 PC 원본을 이 PC 상태로 맞춤).
 - 한계: 대표 1장에 인스턴스 1개면 화면 가장자리의 두 번째 물체는 라벨되지 않는다(배경 학습). 제외 분류기는 `none` 유형 외에는 보수적이라 보류가 쌓이면 GUI 로 정리한다.
 
+### 미수집 제품코드 자동 수집 (`newcodes`, 2026-09-22)
+
+`run` 은 fetch 다음에 `newcodes` 를 돈다: 현장 `save_pose_debug/<날짜>/` 의 **인식 성공 프레임**(json 있음) 파일명에서 12자리 코드를 뽑아,
+지금까지 모은 데이터셋(`AL_KNOWN_DS`, 기본 `field_data_hole_all_20260921` + `SL_under_predict`, 재지정 코드 포함)과 DS 자체에
+없는 코드를 찾는다. 새 코드마다 시간 균등으로 **최대 `AL_NEWCODE_CAP`(60)장**을 raw+json 으로 회수하고, json 의 런타임 마스크
+(`mask_rle`)를 ROI 로 잘라 라벨(대분류 = json `large_sort`)로 써서 DS 에 넣는다 (reason `newcode`, 보류, 메모 "★ 대표 필요").
+누적 수는 `$AL_STATE/newcodes.json` 에 남아 코드당 상한을 넘지 않는다. 검수 PC 에서 이 프레임들로 ★ 대표를 만들면 이후 전파에 쓰인다.
+`python scripts/field_autolabel.py newcodes [날짜...]` 로 단독 실행할 수 있다.
+
 ## 자동 재학습 (auto_retrain, 4시간 cron, 2026-09-19)
 
 field_autolabel 이 모은 ok 데이터로 직전 기준 모델에서 이어 파인튜닝하고, 게이트를 통과하면 다음 기준 모델로 승격한다 (`scripts/auto_retrain.py`, env `yolo_mask_reviewer`).

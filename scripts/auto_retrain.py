@@ -44,7 +44,7 @@ CFG = dict(
     valnew=E('RT_VALNEW', f'{HOME}/jhw/data/SL/reviewed_20260919_valnew'),
     runs=E('RT_RUNS', f'{HOME}/jhw/data/SL/runs'),
     init_base=E('RT_INIT_BASE', f'{HOME}/jhw/data/SL/runs/round_20260919_b0918/weights/best.pt'),
-    device=E('AL_DEVICE', '0'),
+    device=E('AL_DEVICE', '1'),   # PCI_BUS_ID 기준 1 = RTX 4070 Ti (2026-09-22)
     epochs=int(E('RT_EPOCHS', '15')), lr0=float(E('RT_LR0', '0.0001')), batch=int(E('RT_BATCH', '16')),
 )
 GATE1_MIN = float(E('RT_GATE1_MIN', '0.90'))   # 보존: 직전 모델 대비 top-1 IoU≥0.95 비율 (§21-bu/bx 실측 93%)
