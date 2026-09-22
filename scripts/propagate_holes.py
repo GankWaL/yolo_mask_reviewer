@@ -87,6 +87,8 @@ def main():
         if not exs:
             continue
         for s in ds.auto_targets(code, include_auto=True):
+            if ds.state.status(s) == 'reject':      # 제외(reject)는 절대 대상이 아니다 (auto_targets 도 보류만 주지만 명시)
+                continue
             jobs.append((code, s, exs[:a.max_exemplars] if a.max_exemplars > 0 else exs))
     if a.limit:
         jobs = jobs[:a.limit]

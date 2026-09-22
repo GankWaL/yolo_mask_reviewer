@@ -7,7 +7,8 @@
   TARGET    코드를 재배열할 검수 데이터셋 (images/ labels/ manifest.csv review_state.json).
   --anchors 사람이 코드를 확정한 프레임을 가져올 데이터셋들 (state 에 code 가 있거나 ★ 대표이거나 사람이 ok 한 것.
             --anchor-ok-snapshot 으로 자동 ok 이전의 state 스냅샷을 주면 그 시점의 ok 만 사람 ok 로 본다).
-  --apply   판정을 review_state.json 의 code 에 반영 (사람이 이미 코드를 바꾼 프레임은 건드리지 않는다). 없으면 보고서만.
+  기본은 **보고서만** 만든다. 검수 후 안 바뀐 코드는 사람이 맞다고 본 것이므로 자동 처리가 코드를 바꾸지 않는다 (jhw 2026-09-22).
+  --apply / --apply-report 는 --force 를 함께 줄 때만 동작한다 (사람이 이미 코드를 바꾼 프레임은 그때도 건드리지 않는다).
 
 판정 (프레임마다):
   ① 기준 유사도: DINOv2 ViT-S/14 물체 크롭 임베딩으로 가장 가까운 기준 프레임의 코드 A 와 코사인 sA.
@@ -283,10 +284,14 @@ def main():
     ap.add_argument('--mini-dir', default='', help='소형 실루엣 캐시 폴더 (기본 <데이터 루트>/sil_mini_256, 없으면 생성)')
     ap.add_argument('--limit', type=int, default=0)
     ap.add_argument('--apply', action='store_true')
-    ap.add_argument('--apply-report', action='store_true', help='이미 만든 reassign_report.csv 의 change 판정만 반영하고 끝낸다')
+    ap.add_argument('--apply-report', action='store_true', help='이미 만든 reassign_report.csv 의 change 판정만 반영하고 끝낸다 (--force 필요)')
+    ap.add_argument('--force', action='store_true', help='코드 자동 반영을 허용 (기본 금지)')
     a = ap.parse_args()
 
     ds = Dataset(a.target)
+    if (a.apply or a.apply_report) and not a.force:
+        print('코드 자동 반영은 꺼져 있습니다 (검수 후 안 바뀐 코드는 사람이 확인한 것). 보고서만 만들려면 --apply 없이, 정말 반영하려면 --force 를 함께 주세요.')
+        return
     if a.apply_report:
         rp = os.path.join(a.target, 'reassign_report.csv')
         n_app = n_skip = 0

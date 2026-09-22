@@ -114,9 +114,17 @@ python scripts/propagate_holes.py ~/jhw/data/SL/field_all_<날짜> --exemplars-f
 - ② CAD 정합: 라벨 대분류와 같은 obj 전부를 운영 yaw 매처(캐시 전용, coarse 10°)로 정합해 점수 상위 3개를 기록한다.
 - 판정: A == 현재 → confirmed. A ≠ 현재이고 margin 충분하고 CAD 가 A 를 현재보다 못하게 보지 않으면 → A 로 변경. CAD 가
   현재를 강하게 지지하면 유지 + conflict. `UNKNOWN_*` 프레임은 CAD 상위 3개와 fitness 문턱 통과 여부로 obj 존재를 판단한다.
-- 결과는 `TARGET/reassign_report.csv`(stem, cur, anchor, sim, margin, cad top3, decision, new_code, flags). `--apply` 또는
-  `--apply-report` 로 change 판정만 state 의 code 에 반영한다 (사람이 이미 바꾼 프레임은 건드리지 않음).
+- 결과는 `TARGET/reassign_report.csv`(stem, cur, anchor, sim, margin, cad top3, decision, new_code, flags). **코드 자동 반영은 기본
+  금지**다 — 검수 후 안 바뀐 코드는 사람이 맞다고 본 것이고 문제 있는 제품은 제외로 처리하므로(2026-09-22). `--apply`/`--apply-report`
+  는 `--force` 를 함께 줄 때만 동작하고, 그때도 사람이 바꾼 프레임은 건드리지 않는다. `push-ref` 의 3자 병합도 코드는 항상 검수 PC 값을 쓴다.
 - 부모가 CUDA 를 초기화한 뒤 fork 하면 워커가 멈추므로 CAD 정합 풀은 spawn 으로 만든다. 3,600장 × 후보 88개에 16 워커로 약 1시간.
+
+### 검수 PC 와 상태 주고받기 — 사람 판정 보호 (`review_sync.sh pull-ref/push-ref`, `merge_review_state.py`)
+
+자동 처리(전파·재라벨·재배열) 전에 `pull-ref <이름>` 으로 검수 PC 상태를 가져오면 `review_state.json.pulled` 스냅샷이 남는다.
+`push-ref <이름>` 은 보내기 전에 검수 PC 의 현재 상태를 다시 받아 3자 병합한다: 그 사이 사람이 바꾼 stem(status·code·★·메모)은
+원격 것을 그대로 두고 자동 필드(auto·cross_iou·holes)만 얹는다. 어느 쪽이든 **제외(reject)인 stem 은 reject 로 남는다** — 자동
+처리가 제외를 되살리지 않는다. 전파(`propagate_holes.py`, GUI 전파)도 보류 프레임만 대상으로 하고 reject 는 건드리지 않는다.
 
 ### 여러 검수 데이터셋 모으기 (`scripts/gather_datasets.py`)
 
@@ -234,14 +242,20 @@ python scripts/field_autolabel.py run 20260919  # 날짜 지정 / fetch·collect
   `pull-bundle <이름>` → `scripts/apply_review_bundle.py <묶음>`(검수셋·자동셋에 반영) → `exemplars/` 삭제 → `refit` → `redo` → `push-ref`(검수 PC 원본을 이 PC 상태로 맞춤).
 - 한계: 대표 1장에 인스턴스 1개면 화면 가장자리의 두 번째 물체는 라벨되지 않는다(배경 학습). 제외 분류기는 `none` 유형 외에는 보수적이라 보류가 쌓이면 GUI 로 정리한다.
 
-### 미수집 제품코드 자동 수집 (`newcodes`, 2026-09-22)
+### 제품코드별 상한 채우기 (`newcodes`, 2026-09-22)
 
-`run` 은 fetch 다음에 `newcodes` 를 돈다: 현장 `save_pose_debug/<날짜>/` 의 **인식 성공 프레임**(json 있음) 파일명에서 12자리 코드를 뽑아,
-지금까지 모은 데이터셋(`AL_KNOWN_DS`, 기본 `field_data_hole_all_20260921` + `SL_under_predict`, 재지정 코드 포함)과 DS 자체에
-없는 코드를 찾는다. 새 코드마다 시간 균등으로 **최대 `AL_NEWCODE_CAP`(60)장**을 raw+json 으로 회수하고, json 의 런타임 마스크
-(`mask_rle`)를 ROI 로 잘라 라벨(대분류 = json `large_sort`)로 써서 DS 에 넣는다 (reason `newcode`, 보류, 메모 "★ 대표 필요").
-누적 수는 `$AL_STATE/newcodes.json` 에 남아 코드당 상한을 넘지 않는다. 검수 PC 에서 이 프레임들로 ★ 대표를 만들면 이후 전파에 쓰인다.
+`run` 은 fetch 다음에 `newcodes` 를 돈다: 현장 `save_pose_debug/<날짜>/` 의 **인식 성공 프레임**(json 있음, 인식기가 `_skip.json` 으로
+수집 제외 표시한 프레임은 뺌) 파일명에서 12자리 코드를 뽑아, 코드마다 지금까지 모은 수 — `AL_KNOWN_DS`(기본
+`field_data_hole_all_20260921` + `SL_under_predict`) 와 DS 자체를 합쳐 재지정 코드 기준으로 세고, reject 와 데이터셋끼리 겹치는 stem 은
+빼거나 한 번만 — 가 **`AL_NEWCODE_CAP`(60) 미만이면 부족분만큼** 시간 균등으로 raw+json 을 회수한다. 미수집 코드(보유 0)와 60장 미만
+코드를 같은 규칙으로 채우므로, 이미 모은 코드도 60장이 될 때까지 계속 모인다. json 의 런타임 마스크(`mask_rle`)를 ROI 로 잘라
+라벨(대분류 = json `large_sort`)로 써서 DS 에 넣는다 (reason `newcode`, 보류, 메모 "★ 대표 필요"). 검수 PC 에서 이 프레임들로 ★ 대표를
+만들면 이후 전파에 쓰인다. 누적 수집 수는 `$AL_STATE/newcodes.json`(코드별 n·first·last).
 `python scripts/field_autolabel.py newcodes [날짜...]` 로 단독 실행할 수 있다.
+
+주기: 현장 PC 의 `save_pose_debug` 는 50GB 상한에서 오래된 파일부터 지워지는데 2026-09-22 실측으로 시간당 raw 약 1,400\~1,600장
+(프레임당 raw+png+json 약 6.4MB)이라 **보존 창이 약 6시간**이다. 30분 cron(사이클 약 2분)이면 한 사이클을 건너뛰어도 사라지기 전에
+본다. 보존 창이 30분 근처로 줄면(촬영량 증가·상한 축소) cron 간격을 줄여야 한다.
 
 ## 자동 재학습 (auto_retrain, 4시간 cron, 2026-09-19)
 
