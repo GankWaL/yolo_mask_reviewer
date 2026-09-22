@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """검수본(사람이 만든 바깥 윤곽 라벨)에 관통 구멍을 자동으로 뚫어 검수용 데이터셋을 만든다.
 
-  conda activate yolo26
-  python scripts/build_holes_review.py SRC [SRC ...] --out OUT --model best.pt [--device 1] [--workers 8]
+  conda activate yolo_mask_reviewer
+  python scripts/build_holes_review.py SRC [SRC ...] --out OUT --model best.pt [--device 0] [--workers 8]
 
   SRC     images/{train,val,''} + labels/ 가 있는 YOLO-seg 폴더 (reviewed_* 처럼 대분류 5클래스, 파일명에 12자리 코드).
   OUT     mask_reviewer 로 여는 폴더: images/ labels/ aux/ manifest.csv dataset.yaml (keep_holes: true).
@@ -292,7 +292,7 @@ def main():
     ap.add_argument('src', nargs='+')
     ap.add_argument('--out', required=True)
     ap.add_argument('--model', required=True, help='구멍을 남기도록 학습한 YOLO-seg 가중치')
-    ap.add_argument('--device', default='1')
+    ap.add_argument('--device', default='0')
     ap.add_argument('--conf', type=float, default=0.15)
     ap.add_argument('--imgsz', type=int, default=640)
     ap.add_argument('--obj-dir', default=OBJ_DIR)
@@ -301,9 +301,29 @@ def main():
     ap.add_argument('--dilate-frac', type=float, default=0.03, help='CAD 구멍 팽창 = 물체 bbox 긴 변 × 이 값 (정합 오차 허용)')
     ap.add_argument('--workers', type=int, default=8)
     ap.add_argument('--limit', type=int, default=0)
+    ap.add_argument('--into', action='store_true',
+                    help='SRC(1개, 검수 데이터셋)의 보류 프레임(대표·편집본·SAM2 구멍 전파 결과 제외)에 결과를 자동 라벨(labels_auto/)과 '
+                         'aux/ 로 직접 넣는다. 코드는 state 의 재지정 코드. --out 은 무시. 끝나면 `python -m mask_reviewer rescore SRC` 로 diff 갱신')
     a = ap.parse_args()
 
-    items = collect(a.src)
+    ds_into = None
+    if a.into:
+        from mask_reviewer.dataset import Dataset
+        ds_into = Dataset(a.src[0])
+        a.out = ds_into.root
+        skip = 0
+        keep_stems = set()
+        for s in ds_into.stems:
+            if ds_into.state.status(s) != 'pending' or ds_into.state.exemplar(s) or ds_into.is_edited(s):
+                continue
+            if (ds_into.state.auto(s) or {}).get('source') == 'sam2-holes' and ds_into.state.status(s) == 'ok':
+                continue
+            keep_stems.add(s)
+        items = [(s, ds_into.image_path(s), ds_into.original_label_path(s), os.path.basename(ds_into.root))
+                 for s in ds_into.stems if s in keep_stems and os.path.exists(ds_into.original_label_path(s))]
+        print(f'--into: 보류 프레임 {len(items)} 장 (전체 {len(ds_into.stems)})')
+    else:
+        items = collect(a.src)
     if a.limit:
         items = items[:a.limit]
     if not items:
@@ -318,7 +338,7 @@ def main():
     if not names:
         sys.exit('클래스 이름(dataset.yaml names)을 찾지 못했습니다')
 
-    for d in ('images', 'labels', 'aux'):
+    for d in (('labels_auto', 'aux') if ds_into else ('images', 'labels', 'aux')):
         os.makedirs(os.path.join(a.out, d), exist_ok=True)
 
     # ② 모델 추론 (GPU, 순차)
@@ -358,19 +378,25 @@ def main():
     jobs = []
     src_of = {}
     for stem, img_path, lab, tag in items:
-        m = CODE_RE.search(stem)
-        code = m.group(1) if m else ''
-        dst_img = os.path.join(a.out, 'images', os.path.basename(img_path))
-        if not os.path.exists(dst_img):
-            try:
-                os.link(img_path, dst_img)
-            except OSError:
-                import shutil
-                shutil.copy2(img_path, dst_img)
+        if ds_into:
+            code = ds_into.code(stem) or ''
+            dst_img = img_path
+            lab_dir = 'labels_auto'
+        else:
+            m = CODE_RE.search(stem)
+            code = m.group(1) if m else ''
+            dst_img = os.path.join(a.out, 'images', os.path.basename(img_path))
+            lab_dir = 'labels'
+            if not os.path.exists(dst_img):
+                try:
+                    os.link(img_path, dst_img)
+                except OSError:
+                    import shutil
+                    shutil.copy2(img_path, dst_img)
         lines = [l for l in open(lab, encoding='utf-8') if l.strip()]
         src_of[stem] = tag
         jobs.append((stem, dst_img, lines, code, names, preds.get(stem, []),
-                     os.path.join(a.out, 'labels', stem + '.txt'), os.path.join(a.out, 'aux', stem + '.png'),
+                     os.path.join(a.out, lab_dir, stem + '.txt'), os.path.join(a.out, 'aux', stem + '.png'),
                      a.min_px, fit_thr, a.dilate_frac))
     rows = []
     with Pool(a.workers, initializer=_pool_init, initargs=(cache_dirs, P, roi_cap)) as pool:
@@ -383,6 +409,36 @@ def main():
     fields = ['stem', 'source', 'code', 'cls', 'n_inst', 'match_yaw', 'match_score', 'match_iou', 'cad_status',
               'holes_model_px', 'holes_cad_px', 'holes_confirmed_px', 'model_only_px', 'cad_only_px', 'disagree_px',
               'n_confirmed', 'n_model_only', 'n_cad_only']
+    if ds_into:
+        import time as _t
+        for r in rows:
+            n = sum(1 for l in open(os.path.join(a.out, 'labels_auto', r['stem'] + '.txt'), encoding='utf-8') if len(l.split()) >= 7)
+            ds_into.state.set(r['stem'], auto={'source': 'model-cad-holes', 'at': _t.strftime('%Y-%m-%d %H:%M:%S'), 'n': n,
+                                                'score': r['match_score'] if r['match_score'] != '' else 0.0, 'diff': 0.0},
+                              note=f"auto model-cad-holes cad={r['cad_status']} conf={r['holes_confirmed_px']} model_only={r['model_only_px']} cad_only={r['cad_only_px']}")
+        with open(os.path.join(a.out, 'holes_model_manifest.csv'), 'w', newline='') as f:
+            wr = csv.DictWriter(f, fieldnames=fields)
+            wr.writeheader()
+            wr.writerows(rows)
+        # 툴이 정렬·정보에 쓰는 열을 manifest.csv 에도 합친다
+        mp_ = os.path.join(a.out, 'manifest.csv')
+        if os.path.exists(mp_):
+            base = list(csv.DictReader(open(mp_, newline='')))
+            by = {r['stem']: r for r in rows}
+            extra = ['cad_status', 'holes_confirmed_px', 'model_only_px', 'cad_only_px', 'disagree_px', 'match_yaw', 'match_score', 'match_iou']
+            for b in base:
+                r = by.get(b['stem'])
+                for k in extra:
+                    b[k] = r[k] if r else b.get(k, '')
+            with open(mp_, 'w', newline='') as f:
+                wr = csv.DictWriter(f, fieldnames=list(base[0].keys()))
+                wr.writeheader()
+                wr.writerows(base)
+        st = {}
+        for r in rows:
+            st[r['cad_status']] = st.get(r['cad_status'], 0) + 1
+        print(f'완료(--into) {len(rows)} 장 → labels_auto/aux: 확정 구멍 있는 프레임 {sum(1 for r in rows if r["holes_confirmed_px"] > 0)}, CAD 상태 {st}')
+        return
     with open(os.path.join(a.out, 'manifest.csv'), 'w', newline='') as f:
         wr = csv.DictWriter(f, fieldnames=fields)
         wr.writeheader()

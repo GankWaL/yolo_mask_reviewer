@@ -67,7 +67,7 @@ CFG = dict(
     roi=E('AL_ROI', '605,190,685,685'),
     # 잘못 지정된 ★ (뒤집힌 제품 2, 캡 gate 프레임 2) — 검수 PC 에서 ★ 를 고치면 비운다
     exemplar_drop=[x for x in E('AL_EXEMPLAR_DROP', '').split(',') if x],   # 2026-09-19 재검수 반영 후 비움 (검수 PC 가 ★ 를 직접 정리)
-    device=E('AL_DEVICE', '1'),
+    device=E('AL_DEVICE', '0'),
 )
 SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=30', '-o', 'ConnectTimeout=20']
 CODE_RE = re.compile(r'^\d{5}_([0-9A-Z]{12})_raw\.png$')

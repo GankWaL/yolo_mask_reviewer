@@ -12,6 +12,7 @@
 
 ## 환경
 - 이 PC 의 conda 환경은 `yolo_mask_reviewer` 하나다 (GUI + SAM2 + ultralytics 학습·오토라벨). 옛 `pro`/`yolo26` 환경으로 스크립트를 돌리지 않는다. `scripts/*.sh` 의 `PY` 기본값이 이 환경을 가리킨다.
+- GPU 번호는 `CUDA_DEVICE_ORDER=PCI_BUS_ID` 로 nvidia-smi 와 같게 쓴다 (0=RTX PRO 5000 48GB, 1=4070 Ti SUPER 16GB). `~/.bashrc`·crontab·`scripts/*.sh` 에 설정돼 있고 스크립트 `--device` 기본값은 0(PRO 5000). CUDA 기본 순서(FASTEST_FIRST)는 뒤집혀 있으니 환경변수 없이 돌리지 않는다 (2026-09-22).
 - ultralytics 를 다시 설치하면 일반 opencv-python 이 딸려와 PyQt5 와 충돌한다 → headless 로 되돌린다 (`docs/install.md` §3).
 
 ## 문서 배치

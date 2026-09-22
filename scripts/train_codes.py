@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """12자리 제품코드 클래스 YOLO-seg 를 학습한다 (헤드 교체, LH/RH 거울상이므로 좌우반전 증강 금지).
 
-  python scripts/train_codes.py DATA.yaml [--base MODEL.pt] [--name NAME] [--epochs 40] [--device 1]
+  python scripts/train_codes.py DATA.yaml [--base MODEL.pt] [--name NAME] [--epochs 40] [--device 0]
 
   DATA.yaml  train/val 이 목록이어도 된다 (record + field 합본). names 는 build_record_yolo.py 의 것.
   --base     시작 가중치. 기본은 운영 모델(도메인 적응된 백본). 클래스 수가 달라 ultralytics 가 헤드를 새로 만든다.
@@ -26,7 +26,7 @@ def main():
     ap.add_argument('--batch', type=int, default=32)
     ap.add_argument('--lr0', type=float, default=0.001)
     ap.add_argument('--optimizer', default='AdamW')
-    ap.add_argument('--device', default='1')
+    ap.add_argument('--device', default='0')
     ap.add_argument('--workers', type=int, default=12)
     ap.add_argument('--patience', type=int, default=12)
     ap.add_argument('--freeze', type=int, default=0)

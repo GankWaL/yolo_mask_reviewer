@@ -76,10 +76,53 @@ YOLO-seg 폴리곤은 구멍을 직접 표현하지 못해 기존 내보내기�
   - 학습 PC 에서 만들기 (`yolo_mask_reviewer` 환경, 모델은 `~/jhw/data/SL/runs/codes_y26s_holes_*/weights/best.pt`):
     ```bash
     python scripts/build_holes_review.py ~/jhw/data/SL/reviewed_20260918 ~/jhw/data/SL/reviewed_20260919_valnew \
-        --out ~/jhw/data/SL/holes_review_<날짜> --model <best.pt> --device 1
+        --out ~/jhw/data/SL/holes_review_<날짜> --model <best.pt> --device 0
     scripts/review_sync.sh push-bundle ~/jhw/data/SL/holes_review_<날짜>     # 검수 PC 로
     ```
     SLIA `core_utils/yaw_match_pool.py` 를 GL 없이 import 해 쓰므로 `~/jhw/SL_Inspection_Automation` 체크아웃과 obj 캐시가 필요하다.
+  - `--into` 를 주면 새 폴더를 만들지 않고 SRC(검수 데이터셋 1개)의 보류 프레임(대표·편집본·SAM2 구멍 전파 확정분 제외)에
+    결과를 `labels_auto/`(source `model-cad-holes`)와 `aux/` 로 직접 넣고 manifest 에 cad_status 등을 합친다. 코드는 state 의
+    재지정 코드를 쓴다. 끝나면 `python -m mask_reviewer rescore SRC` 로 원본 대비 diff 를 갱신한다.
+
+### 구멍 있는 대표 → SAM2 전파 (`scripts/propagate_holes.py`)
+
+대표(★)에 구멍까지 라벨했으면 같은 제품의 보류 프레임에 SAM2 쌍 전파로 구멍 있는 자동 라벨을 만든다 (GUI 의 `SAM2 대표 전파` 와
+같은 전파기, 게이트와 대표 선택만 구멍용). 2026-09-21 실험: 구멍 있는 대표 6 제품 × 5장에서 30/30 장 구멍이 그대로 옮겨졌고
+(바깥 IoU 0.937), 유일한 실패는 물체 2개 프레임에서 옆 물체로 번지는 점묘였다.
+
+- 대표 선택: SAM2 객체 점수는 거의 전부 1.0 이라 변별력이 없다 → 전파 결과(채움)와 원본 라벨(채움)의 바깥 IoU 가 큰 대표 (GUI 전파도 같음).
+- 게이트: 바깥 IoU ≥ 0.85, 전경 조각 ≤ 3(점묘), 대표 대비 면적비 0.4\~2.5, 구멍 수 ≤ 대표+3, 구멍 면적비 ≤ 0.6.
+  통과하면 `auto-ok`(status ok), 아니면 보류에 사유 메모. 둘 다 `labels_auto/` 에 쓴다.
+- `--exemplars-from DS …` 로 다른 데이터셋(예: holes_review_*)의 대표를 빌려 쓸 수 있고, `--holed-only` 면 구멍이 있는 대표만 쓴다
+  (`keep_holes: false` 로 저장된 대표가 구멍 있는 대표를 밀어내지 않도록).
+
+```bash
+python scripts/propagate_holes.py ~/jhw/data/SL/holes_review_<날짜> --device cuda:0
+python scripts/propagate_holes.py ~/jhw/data/SL/field_all_<날짜> --exemplars-from ~/jhw/data/SL/holes_review_<날짜> --holed-only
+```
+
+대표가 없는 제품은 `scripts/relabel_with_model.py DS --model <구멍 모델> --map-codes` 로 모델 추론을 자동 라벨로 넣는다
+(`--map-codes`: 12자리 코드 클래스 모델의 검출을 obj 이름의 부품 종류로 대분류 5클래스에 맞춘다).
+
+### 제품 코드 자동 재배열 (`scripts/reassign_codes.py`)
+
+현장 json 의 제품 코드가 틀린 프레임을 찾아 고친다. 두 근거를 쓴다.
+
+- ① 기준 프레임: 사람이 코드를 확정한 프레임(state 의 `code`, ★ 대표, 사람 ok)을 `--anchors DS …` 에서 모아 DINOv2 ViT-S/14
+  물체 크롭 임베딩으로 가장 닮은 기준의 코드 A 를 찾는다. 기준끼리의 LOO 정확도 92% (2026-09-21, 913장 77코드). 1위 코드와
+  2위 코드의 유사도 차이(`--margin` 0.05)가 작으면 기준이 없는 제품으로 보고 바꾸지 않는다.
+- ② CAD 정합: 라벨 대분류와 같은 obj 전부를 운영 yaw 매처(캐시 전용, coarse 10°)로 정합해 점수 상위 3개를 기록한다.
+- 판정: A == 현재 → confirmed. A ≠ 현재이고 margin 충분하고 CAD 가 A 를 현재보다 못하게 보지 않으면 → A 로 변경. CAD 가
+  현재를 강하게 지지하면 유지 + conflict. `UNKNOWN_*` 프레임은 CAD 상위 3개와 fitness 문턱 통과 여부로 obj 존재를 판단한다.
+- 결과는 `TARGET/reassign_report.csv`(stem, cur, anchor, sim, margin, cad top3, decision, new_code, flags). `--apply` 또는
+  `--apply-report` 로 change 판정만 state 의 code 에 반영한다 (사람이 이미 바꾼 프레임은 건드리지 않음).
+- 부모가 CUDA 를 초기화한 뒤 fork 하면 워커가 멈추므로 CAD 정합 풀은 spawn 으로 만든다. 3,600장 × 후보 88개에 16 워커로 약 1시간.
+
+### 여러 검수 데이터셋 모으기 (`scripts/gather_datasets.py`)
+
+`--out OUT SRC …` 로 검수 데이터셋들을 하나로 합친다: 이미지 하드링크, **유효 라벨(편집본 > 자동 > 원본)을 원본 라벨로**, 재지정
+코드·판정·대표·자동 라벨 메타를 state 에 유지, `aux/` 복사, manifest 에 source·code·status·label_src·has_holes. 같은 stem 이
+여러 SRC 에 있으면 앞의 SRC 가 이기고 `--prefix` 면 SRC 이름을 붙여 모두 남긴다. YOLO 폴더(images/<split>)도 SRC 로 받는다.
 
 ## 순환 라벨링 (대표 1장 → 자동 라벨 → 검수 → 재학습)
 

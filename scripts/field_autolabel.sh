@@ -3,6 +3,7 @@
 #   */30 * * * * ~/jhw/yolo_mask_reviewer/scripts/field_autolabel.sh          # crontab 예
 #   ~/jhw/yolo_mask_reviewer/scripts/field_autolabel.sh 20260919 20260920      # 날짜 지정
 PY=${PY:-$HOME/anaconda3/envs/yolo_mask_reviewer/bin/python}   # 통합 환경 (docs/install.md §3)
+export CUDA_DEVICE_ORDER=${CUDA_DEVICE_ORDER:-PCI_BUS_ID}   # GPU 번호를 nvidia-smi 와 같게 (0=RTX PRO 5000)
 TOOL=$(cd "$(dirname "$0")/.." && pwd)
 LOGD=${AL_STATE:-$HOME/jhw/data/SL/autolabel}/logs
 mkdir -p "$LOGD"

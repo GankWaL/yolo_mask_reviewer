@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """train_scaffold 의 COCO 기록 데이터셋(instance_segmentation_record)을 12자리 제품코드 클래스의 YOLO-seg 폴더로 바꾼다.
 
-  python scripts/build_record_yolo.py COCO_DIR --out OUT [--obj-dir OBJ] [--base MODEL.pt] [--device 1]
+  python scripts/build_record_yolo.py COCO_DIR --out OUT [--obj-dir OBJ] [--base MODEL.pt] [--device 0]
 
   COCO_DIR   train/instances_train.json, val/instances_val.json, train/images, val/images (800x600, 프레임당 어노테이션 1개)
   --out      YOLO 폴더: images/{train,val}, labels/{train,val}, dataset.yaml, manifest.csv
@@ -150,7 +150,7 @@ def main():
     ap.add_argument('--roi', type=int, nargs=4, default=[223, 132, 297, 389], metavar=('X', 'Y', 'W', 'H'))
     ap.add_argument('--obj-dir', default=DEFAULT_OBJ)
     ap.add_argument('--base', default=DEFAULT_BASE, help="이웃 물체 검사용 운영 모델 ('' 이면 검사 생략)")
-    ap.add_argument('--device', default='1')
+    ap.add_argument('--device', default='0')
     ap.add_argument('--min-inside', type=float, default=0.9)
     ap.add_argument('--foreign-px', type=int, default=2000)
     ap.add_argument('--workers', type=int, default=8)

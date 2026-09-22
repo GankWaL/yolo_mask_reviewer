@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # B+C 한 라운드: 리허설 세트 생성(없으면) → freeze10 / freeze0 두 가지 파인튜닝 → 게이트 보고
 #   FIELD=~/jhw/data/SL/field/20260918 REH=~/jhw/data/SL/rehearsal_20260918 REV=~/jhw/data/SL/reviewed_20260918 \
-#   TAG=20260918 EPOCHS=15 LR=0.0001 DEV=1 scripts/round_bc.sh
+#   TAG=20260918 EPOCHS=15 LR=0.0001 DEV=0 scripts/round_bc.sh
 # 결과: $RUNS/round_<TAG>_f10, _f0 (weights/best.pt, results.csv), $DATA/gate_report_<TAG>.md
 set -uo pipefail
 PY=${PY:-$HOME/anaconda3/envs/yolo_mask_reviewer/bin/python}   # 통합 환경 (docs/install.md §3)
+export CUDA_DEVICE_ORDER=${CUDA_DEVICE_ORDER:-PCI_BUS_ID}   # GPU 번호를 nvidia-smi 와 같게 (0=RTX PRO 5000)
 TOOL=$(cd "$(dirname "$0")/.." && pwd)
 DATA=${DATA:-$HOME/jhw/data/SL}
 FIELD=${FIELD:-$DATA/field/20260918}
@@ -13,7 +14,7 @@ REV=${REV:-$DATA/reviewed_20260918}
 RUNS=${RUNS:-$DATA/runs}
 BASE=${BASE:-$HOME/jhw/SL_Inspection_Automation/models/yolo11s_best_20260326.pt}
 TAG=${TAG:-$(date +%Y%m%d)}
-EPOCHS=${EPOCHS:-15}; LR=${LR:-0.0001}; DEV=${DEV:-1}; BATCH=${BATCH:-16}
+EPOCHS=${EPOCHS:-15}; LR=${LR:-0.0001}; DEV=${DEV:-0}; BATCH=${BATCH:-16}
 PER_CODE=${PER_CODE:-60}; GATE_PER_CODE=${GATE_PER_CODE:-15}
 FREEZES=${FREEZES:-"10 0"}
 echo "[$(date +%T)] tag=$TAG epochs=$EPOCHS lr0=$LR dev=$DEV freezes=$FREEZES"

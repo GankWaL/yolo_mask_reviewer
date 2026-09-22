@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """구멍까지 라벨한 대표(★)를 같은 제품의 보류 프레임에 SAM2 로 쌍 전파해 구멍 있는 자동 라벨을 만든다 (§29 B 단계).
 
-  conda activate pro   # sam2 + torch
+  conda activate yolo_mask_reviewer
   python scripts/propagate_holes.py DATASET [--max-exemplars 3] [--limit 0] [--device cuda:0]
 
 mask_reviewer.propagate.Sam2Propagator 를 쓰되, 대표 선택과 게이트를 구멍 라벨에 맞게 바꿨다.
@@ -13,6 +13,8 @@ mask_reviewer.propagate.Sam2Propagator 를 쓰되, 대표 선택과 게이트를
       구멍 수 ≤ 대표 최대 구멍 수 + 3, 구멍 면적/채운 면적 ≤ 0.6
   · 저장은 dataset.yaml keep_holes 에 따라 다리 폴리곤(구멍 유지). state 에 cross_iou·holes·note 기록.
 대상: 보류 상태이고 편집본·대표가 아닌 프레임 (이미 자동 라벨이 있어도 다시 계산).
+  --exemplars-from DS ...  다른 데이터셋(예: holes_review_*)의 ★ 대표도 같은 코드의 대표로 쓴다. --holed-only 면 구멍이 있는 대표만
+                           (구멍 없이 저장된 대표가 구멍 있는 대표를 밀어내지 않도록). 코드는 각 데이터셋의 재지정 코드 기준.
 """
 import argparse
 import os
@@ -58,22 +60,37 @@ def main():
     ap.add_argument('--limit', type=int, default=0)
     ap.add_argument('--device', default=None)
     ap.add_argument('--ckpt', default=None)
+    ap.add_argument('--exemplars-from', nargs='*', default=[])
+    ap.add_argument('--holed-only', action='store_true')
     a = ap.parse_args()
 
     ds = Dataset(a.dataset)
+    # 대표 풀: (데이터셋, stem) — 자기 데이터셋 + --exemplars-from
+    pools = [ds] + [Dataset(d) for d in a.exemplars_from]
+    ex_by_code = {}
+    for pd_ in pools:
+        for s in pd_.exemplars():
+            c = pd_.code(s)
+            if not c:
+                continue
+            if a.holed_only:
+                _, insts = pd_.load(s)
+                if not any(n_holes(i.mask) > 0 for i in insts):
+                    continue
+            ex_by_code.setdefault(c, []).append((pd_, s))
     if not ds.keep_holes:
         print('경고: dataset.yaml 에 keep_holes: true 가 없어 구멍이 채워져 저장됩니다')
-    codes = [c for c in a.codes.split(',') if c] or sorted({ds.code(s) for s in ds.exemplars()})
+    codes = [c for c in a.codes.split(',') if c] or sorted(ex_by_code)
     jobs = []
     for code in codes:
-        exs = ds.exemplars(code)
+        exs = ex_by_code.get(code, [])
         if not exs:
             continue
         for s in ds.auto_targets(code, include_auto=True):
             jobs.append((code, s, exs[:a.max_exemplars] if a.max_exemplars > 0 else exs))
     if a.limit:
         jobs = jobs[:a.limit]
-    print(f'대상 {len(jobs)} 장 / 코드 {len(codes)} (대표 {len(ds.exemplars())})')
+    print(f'대상 {len(jobs)} 장 / 코드 {len(codes)} (대표 {sum(len(v) for v in ex_by_code.values())}, 풀 {len(pools)})')
     prop = Sam2Propagator(a.ckpt, a.device)
     ref_cache = {}
     n_ok = n_pend = n_none = 0
@@ -88,11 +105,12 @@ def main():
             _, orig = ds.load(stem)
             orig_filled = maskops.fill_holes(union([o.mask for o in orig], h, w)) if orig else None
             best = None
-            for ex in exs:
-                if ex not in ref_cache:
-                    ref_cache[ex] = ds.load(ex)
-                rimg, rinst = ref_cache[ex]
-                res = prop.propagate(rimg, rinst, tgt, ref_key=ex)
+            for pd_, ex in exs:
+                key = (id(pd_), ex)
+                if key not in ref_cache:
+                    ref_cache[key] = pd_.load(ex)
+                rimg, rinst = ref_cache[key]
+                res = prop.propagate(rimg, rinst, tgt, ref_key=f'{pd_.root}/{ex}')
                 if not res:
                     continue
                 filled = maskops.fill_holes(union([m for _, m, _ in res], h, w))
@@ -100,7 +118,7 @@ def main():
                 if best is None or key > best[0]:
                     best = (key, ex, res, rinst)
             if best is None:
-                ds.write_auto(stem, [], w, h, source='sam2-holes', score=0.0, ref=exs[0])
+                ds.write_auto(stem, [], w, h, source='sam2-holes', score=0.0, ref=exs[0][1])
                 ds.state.set(stem, note='auto-none sam2-holes')
                 n_none += 1
                 continue
