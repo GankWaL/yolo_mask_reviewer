@@ -7,7 +7,6 @@
         images/<split>/ 구조(YOLO 폴더)도 받는다.
   OUT/images/<stem>.png          하드링크 (같은 stem 이 여러 SRC 에 있으면 앞의 SRC 가 이긴다; --prefix 면 stem 앞에 SRC 이름을 붙여 모두 보존)
   OUT/labels/<stem>.txt          SRC 의 **유효 라벨**(편집본 > 자동 > 원본) 을 원본 라벨로 둔다 → 툴에서 그대로 보이고, 다시 편집·전파 가능
-  OUT/aux/<stem>.png             있으면 복사
   OUT/review_state.json          status·code·exemplar·note·auto 메타 유지 (code 는 SRC 의 재지정 코드; 없으면 안 씀)
   OUT/manifest.csv               stem, source(SRC/split), code(최종), status, label_src, has_holes(라벨에 구멍 있음), n_inst, reason 등 SRC manifest 열
   OUT/dataset.yaml               names 는 --names-from(기본 첫 SRC), keep_holes: true
@@ -47,7 +46,7 @@ def main():
     ap.add_argument('--prefix', action='store_true')
     ap.add_argument('--names-from', default='')
     a = ap.parse_args()
-    for d in ('images', 'labels', 'aux'):
+    for d in ('images', 'labels'):
         os.makedirs(os.path.join(a.out, d), exist_ok=True)
     names = None
     state = {}
@@ -69,8 +68,7 @@ def main():
         items = []
         if ds is not None:
             for s in ds.stems:
-                items.append((s, ds.image_path(s), ds.label_text(s), ds.label_source(s), ds.code(s), ds.state.get(s), ds.manifest.get(s, {}), tag,
-                              ds.aux_mask(s) if ds.has_aux else None))
+                items.append((s, ds.image_path(s), ds.label_text(s), ds.label_source(s), ds.code(s), ds.state.get(s), ds.manifest.get(s, {}), tag, None))
         else:
             for sp in sorted(os.listdir(os.path.join(src, 'images'))):
                 idir = os.path.join(src, 'images', sp)
@@ -94,8 +92,6 @@ def main():
                     shutil.copy2(ipath, dst)
             with open(os.path.join(a.out, 'labels', stem + '.txt'), 'w', encoding='utf-8') as f:
                 f.write(text if text.endswith('\n') or not text else text + '\n')
-            if aux is not None:
-                cv2.imwrite(os.path.join(a.out, 'aux', stem + '.png'), aux)
             img = cv2.imread(ipath)
             h, w = img.shape[:2]
             e = {k: v for k, v in (st or {}).items() if k in ('status', 'exemplar', 'note', 'auto', 'updated', 'cross_iou', 'holes')}
@@ -122,7 +118,7 @@ def main():
     with open(os.path.join(a.out, 'dataset.yaml'), 'w', encoding='utf-8') as f:
         f.write(f'# gather_datasets.py: {", ".join(os.path.basename(os.path.normpath(s)) for s in a.src)} 를 모음 (유효 라벨 = 원본, 재지정 코드 고정)\n')
         yaml.safe_dump({'path': os.path.abspath(a.out), 'train': 'images', 'val': 'images', 'names': names or {},
-                        'keep_holes': True, 'aux_dir': 'aux'}, f, sort_keys=False, allow_unicode=True)
+                        'keep_holes': True}, f, sort_keys=False, allow_unicode=True)
     import collections
     print(f'완료 {len(rows)} 장 → {a.out}: 코드 {len({r["code"] for r in rows if r["code"]})}, 구멍 라벨 {sum(r["has_holes"] for r in rows)}, '
           f'상태 {dict(collections.Counter(r["status"] for r in rows))}, 라벨 출처 {dict(collections.Counter(r["label_src"] for r in rows))}')

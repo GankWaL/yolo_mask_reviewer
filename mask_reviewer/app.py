@@ -237,7 +237,6 @@ class MainWindow(QMainWindow):
         self.sort_combo.addItem('원본과 차이 큰 순', 'diff')
         self.sort_combo.addItem('자동 점수 낮은 순', 'score')
         self.sort_combo.addItem('제품 코드 순', 'code')
-        self.sort_combo.addItem('구멍 불일치 큰 순', 'holes')
         self.sort_combo.setToolTip('원본과 차이 큰 순: 자동 라벨이 원본 의사 라벨을 많이 바꾼 것(1-IoU)부터 검수\n'
                                    '자동 점수 낮은 순: SAM2 객체 점수 / YOLO conf 가 낮은 것부터\n'
                                    '제품 코드 순: 같은 제품끼리 모아서 (코드 없는 이미지는 맨 뒤), 제품 안에서는 파일명 순')
@@ -320,10 +319,7 @@ class MainWindow(QMainWindow):
                 ('선택 병합', self.merge_instances), ('조각 분리', self.split_instance),
                 ('자르기 (K)', lambda: self.set_tool('cut')), ('GrabCut 보정 (G)', self.grabcut),
                 ('구멍 채우기', self.fill_holes), ('최대 조각만', self.keep_largest),
-                ('가장자리 정리', self.smooth), ('원본 라벨 복원', self.revert),
-                ('확정 구멍 빼기', lambda: self.apply_aux_holes((1,))),
-                ('모델 구멍 빼기', lambda: self.apply_aux_holes((1, 2))),
-                ('CAD 구멍 빼기', lambda: self.apply_aux_holes((1, 3)))]
+                ('가장자리 정리', self.smooth), ('원본 라벨 복원', self.revert)]
         for i, (t, fn) in enumerate(btns):
             b = QPushButton(t)
             b.clicked.connect(fn)
@@ -435,8 +431,6 @@ class MainWindow(QMainWindow):
         self.act_fill.setChecked(True)
         self.act_outline = act('외곽선 표시', self.toggle_outline, 'O', vm, checkable=True)
         self.act_outline.setChecked(True)
-        self.act_aux = act('보조 구멍 레이어 표시 (청록 확정 / 자홍 모델만 / 주황 CAD만)', self.toggle_aux, 'J', vm, checkable=True)
-        self.act_aux.setChecked(True)
         self.act_keep_holes = act('구멍 유지 저장·내보내기 (다리 폴리곤)', self.toggle_keep_holes, None, fm, checkable=True)
         self.act_keep_holes.setToolTip('켜면 편집본·자동 라벨·내보내기 폴리곤이 관통 구멍을 남긴다. dataset.yaml 의 keep_holes 가 기본값.')
         act('화면 맞춤', self.canvas.fit, 'F', vm)
@@ -513,8 +507,6 @@ class MainWindow(QMainWindow):
         self.cls_combo.blockSignals(False)
         self.canvas.default_cls = self.cls_combo.currentData() or 0
         self.act_keep_holes.setChecked(ds.keep_holes)
-        if ds.has_aux:
-            self.say('보조 구멍 레이어(aux/) 있음 — J 로 표시 전환, "구멍 불일치 큰 순" 정렬로 검수')
         self._refresh_code_filter()
         self._thumbs = {}
         self.refresh_list()
@@ -742,16 +734,6 @@ class MainWindow(QMainWindow):
             out.sort(key=key)
         elif mode == 'code':
             out.sort(key=lambda s: ((0, self.ds.code(s)) if self.ds.code(s) else (1, '')))
-        elif mode == 'holes':
-            def key(s):
-                r = self.ds.manifest.get(s, {})
-                try:
-                    d = float(r.get('disagree_px') or 0)
-                except ValueError:
-                    d = 0.0
-                bad = 1 if r.get('cad_status') not in ('ok', None, '') else 0
-                return (-bad, -d)
-            out.sort(key=key)
         return out
 
     def refresh_list(self):
@@ -849,7 +831,6 @@ class MainWindow(QMainWindow):
         self.canvas.set_image(img)
         cur = int(np.argmax([i.area for i in insts])) if insts else -1
         self.canvas.set_instances(self.instances, cur)
-        self.canvas.set_aux(self.ds.aux_mask(stem))
         self.canvas.fit()
         self._refresh_inst_list()
         self._refresh_info()
@@ -875,11 +856,6 @@ class MainWindow(QMainWindow):
             lines.append(f'<span style="color:#080">학습 사용: {self.ds.state.get(s).get("train_round")} ({self.ds.state.get(s).get("train_split", "")})</span>')
         if self.ds.state.get(s).get('train_exclude'):
             lines.append(f'<span style="color:#c00">정제 제외(학습 미사용): {self.ds.state.get(s).get("refine_reasons", "")}</span>')
-        if 'cad_status' in r:
-            st_col = '#080' if r.get('cad_status') == 'ok' else '#c00'
-            lines.append(f'구멍: 확정 <b>{r.get("holes_confirmed_px")}</b>px · 모델만 {r.get("model_only_px")} · CAD만 {r.get("cad_only_px")}'
-                         f' · CAD 정합 <span style="color:{st_col}">{r.get("cad_status")}</span>'
-                         f' (yaw {r.get("match_yaw")}, score {r.get("match_score")}, iou {r.get("match_iou")})')
         if r.get('source'):
             lines.append(f'<span style="color:#777">{r["source"]}</span>')
         self.info.setText('<br>'.join(lines))
@@ -1387,23 +1363,12 @@ class MainWindow(QMainWindow):
         self.canvas.show_outline = self.act_outline.isChecked()
         self.canvas.update()
 
-    def toggle_aux(self):
-        self.canvas.show_aux = self.act_aux.isChecked()
-        self.canvas.update()
-
     def toggle_keep_holes(self):
         if self.ds is not None:
             self.ds.keep_holes = self.act_keep_holes.isChecked()
             self.say(f'구멍 유지 저장·내보내기: {"켜짐" if self.ds.keep_holes else "꺼짐"}')
 
-    def apply_aux_holes(self, values):
-        """보조 구멍 레이어의 값(values) 영역을 현재 인스턴스에서 뺀다."""
-        aux = self.canvas.aux
-        if aux is None:
-            self.say('이 이미지에는 보조 구멍 레이어가 없습니다')
-            return
-        region = np.isin(aux, values)
-        self._apply_mask_op(lambda m: maskops.subtract(m, region), '구멍 빼기')
+
 
     # ================================================================ 내보내기
     def export(self):

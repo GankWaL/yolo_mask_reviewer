@@ -167,9 +167,7 @@ class Dataset:
         # 구멍 유지: dataset.yaml 의 keep_holes: true 면 저장·자동 라벨·내보내기 폴리곤이 구멍을 남긴다 (다리 폴리곤).
         # 읽기는 cv2.fillPoly 의 짝홀 채움이라 어느 쪽 라벨이든 그대로 마스크가 된다.
         self.keep_holes = bool(y.get('keep_holes', False))
-        # 보조 구멍 레이어: aux/<stem>.png (uint8, 1 확정 구멍 / 2 모델만 / 3 CAD만). build_holes_review.py 가 만든다.
-        self.aux_dir = os.path.join(self.root, y.get('aux_dir', 'aux'))
-        self.has_aux = os.path.isdir(self.aux_dir)
+
 
     # ------------------------------------------------------------ 경로/메타
     def _infer_num_classes(self):
@@ -191,14 +189,6 @@ class Dataset:
     def image_path(self, stem):
         return self._img_path[stem]
 
-    def aux_mask(self, stem):
-        """보조 구멍 레이어 (uint8 HxW) 또는 None."""
-        if not self.has_aux:
-            return None
-        p = os.path.join(self.aux_dir, stem + '.png')
-        if not os.path.exists(p):
-            return None
-        return cv2.imread(p, cv2.IMREAD_GRAYSCALE)
 
     def original_label_path(self, stem):
         return os.path.join(self.labels_dir, stem + '.txt')

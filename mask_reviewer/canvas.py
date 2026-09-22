@@ -20,11 +20,6 @@ PALETTE = [(235, 64, 64), (250, 200, 40), (60, 200, 235), (220, 80, 220), (80, 1
            (70, 210, 100), (255, 140, 0), (170, 110, 255), (0, 190, 170), (200, 200, 200)]
 
 
-# 보조 구멍 레이어 색 (BGR): 1 확정 구멍(모델·CAD 일치) / 2 모델만 / 3 CAD만
-AUX_COLORS = {1: (255, 255, 0), 2: (255, 0, 255), 3: (0, 140, 255)}
-AUX_LABELS = {1: '확정(모델=CAD)', 2: '모델만', 3: 'CAD만'}
-
-
 def class_color(cls):
     r, g, b = PALETTE[int(cls) % len(PALETTE)]
     return QColor(r, g, b)
@@ -62,11 +57,6 @@ class MaskCanvas(QWidget):
         self._overlay = None
         self._overlay_buf = None
         self._contours = []
-        # 보조 구멍 레이어 (uint8 HxW: 1 확정 / 2 모델만 / 3 CAD만) — 표시 전용, 편집 대상 아님
-        self.aux = None
-        self.show_aux = True
-        self._aux_overlay = None
-        self._aux_buf = None
         self._drag = None
         self._last_pt = None
         self._pan_start = None
@@ -104,24 +94,6 @@ class MaskCanvas(QWidget):
         self.clear_sam(emit=False)
         self.vert_polys = []
         self._vert_drag = None
-
-    def set_aux(self, aux):
-        """보조 구멍 레이어 설정 (None 이면 없음). 색: 1 청록(확정) / 2 자홍(모델만) / 3 주황(CAD만)."""
-        self.aux = aux
-        self._aux_overlay = None
-        self._aux_buf = None
-        if aux is not None and self.img is not None and aux.shape[:2] == self.img.shape[:2]:
-            h, w = aux.shape[:2]
-            buf = np.zeros((h, w, 4), np.uint8)
-            for v, (b, g, r) in AUX_COLORS.items():
-                m = aux == v
-                buf[m, 0] = b
-                buf[m, 1] = g
-                buf[m, 2] = r
-                buf[m, 3] = 150
-            self._aux_buf = buf
-            self._aux_overlay = QImage(buf.data, w, h, 4 * w, QImage.Format_ARGB32)
-        self.update()
 
     def set_instances(self, instances, current=-1):
         self.instances = instances
@@ -622,8 +594,6 @@ class MaskCanvas(QWidget):
         p.drawImage(target, self.qimg)
         if self.show_fill and self._overlay is not None:
             p.drawImage(target, self._overlay)
-        if self.show_aux and self._aux_overlay is not None:
-            p.drawImage(target, self._aux_overlay)
         p.setRenderHint(QPainter.Antialiasing, True)
         if self.show_outline:
             for i, polys in enumerate(self._contours):

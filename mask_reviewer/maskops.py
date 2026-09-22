@@ -223,11 +223,6 @@ def grabcut_refine(img_bgr, mask, margin=25, band=20, iters=3):
     return out
 
 
-def subtract(mask, region):
-    """region(bool) 을 마스크에서 뺀다 (보조 구멍 레이어 적용용)."""
-    return np.logical_and(mask, np.logical_not(region))
-
-
 def fill_holes(mask):
     """마스크 내부 구멍 채우기 (외곽선으로 다시 채움)."""
     out = np.zeros_like(mask, dtype=np.uint8)
