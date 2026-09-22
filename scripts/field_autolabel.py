@@ -9,6 +9,8 @@
                재지정 코드 기준)가 AL_NEWCODE_CAP(60) 미만이면 부족분만큼 시간 균등으로 회수하고, json 의 런타임 마스크(mask_rle)를
                ROI 로 잘라 라벨로 써서 DS 에 넣는다(reason newcode, 보류 상태 — 검수 PC 에서 ★ 대표를 만들어야 함).
                미수집 코드와 60장 미만 코드를 같은 규칙(부족분 = 상한 − 보유)으로 채운다. 누적 수는 $AL_STATE/newcodes.json.
+               현장 json 의 코드는 **원래 코드 → 검수 재지정 코드 대응표**(code_alias: 검수 데이터셋에서 사람이 바꾼 코드를 집계,
+               $AL_STATE/code_alias.json, 수동 code_alias_manual.json 우선)를 거쳐 세고 저장한다 (`codes` 명령으로 표 확인·DS 적용).
   2. collect   새로 받은 프레임만 심볼릭링크 스테이징에 모아 collect_yolo_hard_cases.py 로 누적 데이터셋(DS)에 추가
                (ROI 크롭 + 현장 모델 의사 라벨 + manifest). 사이클당 제품별 --max-per-code, (날짜, 제품) 누적 상한 AL_DAILY_CAP(60).
   3. exclude   기준 데이터(현장 manifest 2,423 = 확정 export 2,179 + 검수에서 빠진 244)로 학습한 제외 분류기
@@ -181,6 +183,63 @@ def code_counts(ds):
     return {c: len(v) for c, v in stems.items()}
 
 
+def code_alias(ds, min_n=3, min_share=0.8):
+    """원래(현장 json) 코드 → 검수 재지정 코드 대응표. AL_KNOWN_DS(검수된 기준 데이터셋)의 state 에서 사람이 코드를 바꾼 프레임을 세어,
+    한 원래 코드의 재지정이 min_n 장 이상이고 최다 코드 비율이 min_share 이상이면 채택. $AL_STATE/code_alias_manual.json
+    ({원래: 재지정}) 이 있으면 그것이 우선. 결과는 $AL_STATE/code_alias.json 에 남긴다 (읽기용)."""
+    from mask_reviewer.dataset import Dataset, is_full_code, code_from_stem
+    # 원래 코드 = 파일명(현장 json) 코드. 비율 분모는 그 원래 코드의 전체 프레임(안 바꾼 것 포함, reject 제외) —
+    # 일부 프레임만 바꾼 것(LH/RH 개별 교정 등)은 대응표가 아니다. 서로 맞바꾼 쌍(A→B 와 B→A)도 대응표가 아니다.
+    tally = collections.defaultdict(collections.Counter)
+    total = collections.Counter()
+    seen = set()
+    for root in CFG['known_ds']:          # 검수된 기준 데이터셋만 (DS 자체의 미검수 자동 수집분은 분모에 넣지 않는다)
+        if not os.path.isdir(os.path.join(root, 'images')):
+            continue
+        try:
+            d = ds if os.path.abspath(root) == os.path.abspath(ds.root) else Dataset(root)
+        except Exception:
+            continue
+        for s_ in d.stems:
+            if s_ in seen or d.state.status(s_) == 'reject':
+                continue
+            seen.add(s_)
+            orig = code_from_stem(s_)
+            if not is_full_code(orig):
+                continue
+            total[orig] += 1
+            new = d.code(s_)
+            if is_full_code(new) and new != orig:
+                tally[orig][new] += 1
+    alias = {}
+    for orig, cnt in tally.items():
+        new, n = cnt.most_common(1)[0]
+        if n >= min_n and n / max(total[orig], 1) >= min_share:
+            alias[orig] = new
+    for a_, b_ in list(alias.items()):
+        if alias.get(b_) == a_:      # 맞바꾼 쌍 제거
+            alias.pop(a_, None)
+            alias.pop(b_, None)
+    mp = os.path.join(CFG['state_dir'], 'code_alias_manual.json')
+    if os.path.isfile(mp):
+        alias.update({k: v for k, v in json.load(open(mp)).items() if is_full_code(k) and is_full_code(v)})
+    os.makedirs(CFG['state_dir'], exist_ok=True)
+    json.dump(dict(sorted(alias.items())), open(os.path.join(CFG['state_dir'], 'code_alias.json'), 'w'), ensure_ascii=False, indent=1)
+    return alias
+
+
+def apply_alias(ds, alias):
+    """DS 에서 사람이 코드를 안 바꾼 프레임 중 원래 코드가 대응표에 있으면 재지정 코드로 (state code). 반환: 바꾼 수."""
+    n = 0
+    for s_ in ds.stems:
+        if ds.state.code(s_):
+            continue
+        new = alias.get(ds.orig_code(s_))
+        if new and ds.set_code(s_, new):
+            n += 1
+    return n
+
+
 def uniform_pick(seq, n):
     if n <= 0 or not seq:
         return []
@@ -198,6 +257,7 @@ def newcodes(dates, ds):
     sys.path.insert(0, HERE)
     from build_record_yolo import rle_decode
     have = code_counts(ds)
+    alias = code_alias(ds)
     cap = CFG['newcode_cap']
     cnt_path = os.path.join(CFG['state_dir'], 'newcodes.json')
     counts = json.load(open(cnt_path)) if os.path.isfile(cnt_path) else {}
@@ -227,7 +287,7 @@ def newcodes(dates, ds):
             m = JSON_RE.match(rel)
             if not m or os.path.basename(m.group(1)).startswith('nodet_'):
                 continue
-            by_code[m.group(3)].append(rel)
+            by_code[alias.get(m.group(3), m.group(3))].append(rel)   # 현장 코드 → 재지정 코드 (대응표)
         short = {c: cap - have.get(c, 0) for c in by_code if have.get(c, 0) < cap}
         if not short:
             log(f'newcodes {d}: 성공 프레임 코드 {len(by_code)}종, 전부 상한({cap}) 충족')
@@ -289,10 +349,16 @@ def newcodes(dates, ds):
                 cv2.imwrite(os.path.join(ds.root, 'images', stem + '.png'), crop)
                 with open(os.path.join(ds.root, 'labels', stem + '.txt'), 'w', encoding='utf-8') as f:
                     f.write(line + '\n')
-                rows.append(dict(stem=stem, source=f'save_pose_debug/{d}/{js[:-5]}_raw.png', code=c, reason='newcode', n_det=1,
+                orig = os.path.basename(js)[6:18]
+                rows.append(dict(stem=stem, source=f'save_pose_debug/{d}/{js[:-5]}_raw.png', code=orig, reason='newcode', n_det=1,
                                  top_cls=ds.names[cls], top_conf=round(float(meta.get('fitness', 0) or 0), 3),
                                  top_maskpx=int(mc.sum()), top_fill=''))
-                ds.state.set(stem, status='pending', note='newcode 자동 수집 — 제품코드별 상한 채우기, ★ 대표 필요')
+                note = 'newcode 자동 수집 — 제품코드별 상한 채우기, ★ 대표 필요'
+                if orig != c:
+                    note += f' | 현장 코드 {orig} → 대응표 {c}'
+                ds.state.set(stem, status='pending', note=note)
+                if orig != c:
+                    ds.set_code(stem, c)
                 existing.add(stem)
                 have[c] = have.get(c, 0) + 1
                 e = counts.setdefault(c, {'n': 0, 'first': d})
@@ -909,18 +975,30 @@ def open_ds():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('cmd', choices=['run', 'fetch', 'newcodes', 'collect', 'refit', 'exclude', 'propagate', 'export', 'status', 'redo'],
+    ap.add_argument('cmd', choices=['run', 'fetch', 'newcodes', 'collect', 'refit', 'exclude', 'propagate', 'export', 'status', 'redo', 'codes'],
                     help='redo: 자동 판정(auto-ok/auto-pending/auto-none) 이미지를 보류로 되돌려 전파·내보내기를 다시 (사람 판정·자동 제외는 유지)')
     ap.add_argument('dates', nargs='*', help='YYYYMMDD (기본 어제·오늘)')
     ap.add_argument('--max-per-code', type=int, default=30, help='collect: 사이클당 제품별 상한')
     ap.add_argument('--include-auto', action='store_true', help='propagate: 이미 자동 라벨이 있는 보류도 다시')
     ap.add_argument('--limit', type=int, default=0, help='propagate: 대상 수 제한 (시험용)')
+    ap.add_argument('--apply-alias', action='store_true', help='codes: 대응표를 DS 에 적용')
     a = ap.parse_args()
     os.makedirs(CFG['state_dir'], exist_ok=True)
     dates = today_dates(a.dates)
     t0 = time.time()
     if a.cmd == 'refit':
         return refit()
+    if a.cmd == 'codes':
+        ds_ = open_ds()
+        al = code_alias(ds_)
+        print(f'대응표 {len(al)}건 (원래 현장 코드 → 검수 재지정 코드), $AL_STATE/code_alias.json / 수동 code_alias_manual.json')
+        for k, v in sorted(al.items()):
+            print(f'  {k} → {v}')
+        if a.apply_alias:
+            print(f'DS 에 적용: {apply_alias(ds_, al)}장 코드 변경')
+        else:
+            print('(--apply-alias 를 주면 DS 의 미변경 프레임에 적용; run 은 매 사이클 자동 적용)')
+        return 0
     if a.cmd == 'newcodes':
         newcodes(dates, open_ds())
         return 0
@@ -938,6 +1016,13 @@ def main():
         # collect() 가 검수 PC 에서 이미 본 stem 을 빼므로 매 사이클 전체를 넘겨도 새 것만 추가된다.
         pool = local_failures(dates)
         n_new = collect(pool, a.max_per_code)
+        try:   # 실패 프레임(collector)도 현장 코드 → 재지정 코드 대응표 적용 (사람이 바꾼 코드는 그대로)
+            ds_ = open_ds()
+            n_al = apply_alias(ds_, code_alias(ds_))
+            if n_al:
+                log(f'code alias: {n_al}장 코드를 대응표로 재지정')
+        except Exception as e:
+            log(f'code alias 실패 (계속 진행): {e}')
         if a.cmd == 'collect':
             return 0
     ds = open_ds()

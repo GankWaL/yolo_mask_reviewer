@@ -256,6 +256,13 @@ python scripts/field_autolabel.py run 20260919  # 날짜 지정 / fetch·collect
 만들면 이후 전파에 쓰인다. 누적 수집 수는 `$AL_STATE/newcodes.json`(코드별 n·first·last).
 `python scripts/field_autolabel.py newcodes [날짜...]` 로 단독 실행할 수 있다.
 
+**원래 코드 → 재지정 코드 대응표(code_alias, 2026-09-23)**: 현장 json 의 코드가 틀린 제품(예 10K091 → 검수에서 10K081)은 현장에서
+계속 원래 코드로 나오므로, 검수된 기준 데이터셋(`AL_KNOWN_DS`)에서 사람이 바꾼 코드를 집계해 대응표를 만든다 — 원래 코드의 전체
+프레임(제외 제외) 중 80% 이상이 같은 코드로 바뀌었고 3장 이상이면 채택, 서로 맞바꾼 쌍(LH/RH 개별 교정)은 제외. `newcodes` 는
+현장 코드를 대응표로 바꿔 세고 저장하며(state code + 메모 "현장 코드 A → 대응표 B"), `run` 은 collector 로 들어온 실패 프레임에도
+적용한다(사람이 바꾼 코드는 그대로). 표는 `$AL_STATE/code_alias.json`, 손으로 고치려면 `code_alias_manual.json`({원래: 재지정})이 우선.
+`python scripts/field_autolabel.py codes [--apply-alias]` 로 표를 보고 DS 에 적용한다.
+
 주기: 현장 PC 의 `save_pose_debug` 는 50GB 상한에서 오래된 파일부터 지워지는데 2026-09-22 실측으로 시간당 raw 약 1,400\~1,600장
 (프레임당 raw+png+json 약 6.4MB)이라 **보존 창이 약 6시간**이다. 30분 cron(사이클 약 2분)이면 한 사이클을 건너뛰어도 사라지기 전에
 본다. 보존 창이 30분 근처로 줄면(촬영량 증가·상한 축소) cron 간격을 줄여야 한다.
