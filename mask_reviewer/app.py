@@ -209,7 +209,8 @@ class MainWindow(QMainWindow):
         self.code_filter = QComboBox()
         self.status_filter = QComboBox()
         for k, t in (('all', '전체'), ('pending', '보류'), ('ok', '확정'), ('reject', '제외'), ('edited', '편집됨'),
-                     ('auto', '자동 라벨'), ('exemplar', '대표'), ('train_exclude', '정제 제외(학습 미사용)')):
+                     ('auto', '자동 라벨'), ('exemplar', '대표'), ('train_exclude', '정제 제외(학습 미사용)'),
+                     ('trained', '최근 학습에 사용됨'), ('auto_model', '학습 모델 자동 라벨(보류)')):
             self.status_filter.addItem(t, k)
         self.search = QLineEdit()
         self.search.setPlaceholderText('파일명 검색')
@@ -716,6 +717,13 @@ class MainWindow(QMainWindow):
             elif st == 'train_exclude':
                 if not self.ds.state.get(s).get('train_exclude'):
                     continue
+            elif st == 'trained':
+                if not self.ds.state.get(s).get('train_round'):
+                    continue
+            elif st == 'auto_model':
+                if not (self.ds.is_auto(s) and str(self.ds.state.auto(s).get('source', '')).startswith('yolo:')
+                        and self.ds.state.status(s) == 'pending'):
+                    continue
             elif st != 'all' and self.ds.state.status(s) != st:
                 continue
             if q and q not in s.lower():
@@ -863,6 +871,8 @@ class MainWindow(QMainWindow):
         if 'reason' in r:
             lines.append(f'reason {r.get("reason")} · 검출 {r.get("n_det")} · top {r.get("top_cls")} '
                          f'conf {r.get("top_conf")} · fill {r.get("top_fill")}')
+        if self.ds.state.get(s).get('train_round'):
+            lines.append(f'<span style="color:#080">학습 사용: {self.ds.state.get(s).get("train_round")} ({self.ds.state.get(s).get("train_split", "")})</span>')
         if self.ds.state.get(s).get('train_exclude'):
             lines.append(f'<span style="color:#c00">정제 제외(학습 미사용): {self.ds.state.get(s).get("refine_reasons", "")}</span>')
         if 'cad_status' in r:

@@ -138,6 +138,9 @@ python scripts/propagate_holes.py ~/jhw/data/SL/field_all_<날짜> --exemplars-f
   통계 대신 고정 임계값을 쓴다.
 - 결과 `refine_report.csv`. `--apply` 면 state 에 `train_exclude`·`refine_reasons` 를 쓴다(판정은 그대로). 내보내기는 `train_exclude`
   프레임을 기본으로 건너뛰고(`--keep-excluded` 로 포함), 목록 필터 `정제 제외(학습 미사용)` 로 툴에서 볼 수 있다.
+- **어느 프레임이 학습에 들어갔는지**: 내보내기에 `--round <이름>` 을 주면(예 `codes_y26x_refined_20260922`) 내보낸 프레임의 state 에
+  `train_round`·`train_split`(train/val)이 남고, 목록 필터 `최근 학습에 사용됨` 과 오른쪽 정보의 "학습 사용: …" 으로 구별된다.
+  학습 뒤 보류 프레임을 그 모델로 재라벨한 것은 필터 `학습 모델 자동 라벨(보류)`(자동 라벨 출처 `yolo:*` 이고 보류)로 모아 본다.
   2026-09-22 field_data_hole_all: 5,357장 중 통과 3,559(이웃 1,793·중앙 이탈 34·경계 18·복수 3 제외).
 
 ### 여러 검수 데이터셋 모으기 (`scripts/gather_datasets.py`)

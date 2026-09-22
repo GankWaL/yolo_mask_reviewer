@@ -45,6 +45,7 @@ def _cli(argv):
     e.add_argument('--eps', type=float, default=0.7)
     e.add_argument('--min-area', type=float, default=16.0)
     e.add_argument('--keep-excluded', action='store_true', help='refine_dataset.py 가 train_exclude 표시한 프레임도 포함')
+    e.add_argument('--round', default=None, help='학습 라운드 이름 — 내보낸 프레임의 state 에 train_round/train_split 로 기록')
     s = sub.add_parser('stats', help='검수 현황')
     s.add_argument('dataset')
     pp = sub.add_parser('propagate', help='대표(★) 라벨을 같은 제품의 보류 이미지로 SAM2 전파 → labels_auto/')
@@ -93,7 +94,7 @@ def _cli(argv):
     from .export import export_dataset
     r = export_dataset(ds, a.out, statuses=tuple(a.status.split(',')), val_ratio=a.val, seed=a.seed,
                        copy_mode=a.mode, eps=a.eps, min_area=a.min_area,
-                       progress=lambda i, n, st: print(f'\r{i + 1}/{n}', end='', flush=True), keep_excluded=a.keep_excluded)
+                       progress=lambda i, n, st: print(f'\r{i + 1}/{n}', end='', flush=True), keep_excluded=a.keep_excluded, round_name=a.round)
     print()
     for k, v in r.items():
         print(f'{k}: {v}')

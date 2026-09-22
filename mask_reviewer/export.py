@@ -50,7 +50,7 @@ def _place(src, dst, mode):
 
 
 def export_dataset(ds, out_dir, statuses=('ok',), val_ratio=0.1, seed=0, copy_mode='copy',
-                   eps=0.7, min_area=16.0, progress=None, keep_excluded=False):
+                   eps=0.7, min_area=16.0, progress=None, keep_excluded=False, round_name=None):
     """progress(i, n, stem) 콜백은 선택. 요약 dict 반환.
     refine_dataset.py 가 state 에 train_exclude 를 표시한 프레임(잘림·주변 물체·중앙 이탈)은 기본으로 건너뛴다 (keep_excluded 로 포함)."""
     if copy_mode not in COPY_MODES:
@@ -113,6 +113,11 @@ def export_dataset(ds, out_dir, statuses=('ok',), val_ratio=0.1, seed=0, copy_mo
         wr.writeheader()
         wr.writerows(rows)
 
+    if round_name:   # 어떤 프레임이 이 학습 라운드에 들어갔는지 state 에 남긴다 (툴 필터 "최근 학습에 사용됨", 정보 패널)
+        for s in stems:
+            ds.state.data.setdefault(s, {})['train_round'] = round_name
+            ds.state.data[s]['train_split'] = split[s] or 'all'
+        ds.state.save()
     n_val = sum(1 for v in split.values() if v == 'val')
     return dict(out_dir=out_dir, n_total=len(stems), n_train=len(stems) - n_val, n_val=n_val,
                 n_edited=n_edited, n_empty=n_empty, n_refine_excluded=n_refined_out,

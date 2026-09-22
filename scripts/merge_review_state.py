@@ -18,7 +18,7 @@ import collections
 import json
 
 HUMAN = ('status', 'code', 'exemplar', 'note')
-AUTO = ('auto', 'cross_iou', 'holes', 'reject_reason')
+AUTO = ('auto', 'cross_iou', 'holes', 'reject_reason', 'train_exclude', 'refine_reasons', 'train_round', 'train_split')
 
 
 def merge(local, remote, snap):
