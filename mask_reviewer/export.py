@@ -50,12 +50,15 @@ def _place(src, dst, mode):
 
 
 def export_dataset(ds, out_dir, statuses=('ok',), val_ratio=0.1, seed=0, copy_mode='copy',
-                   eps=0.7, min_area=16.0, progress=None):
-    """progress(i, n, stem) 콜백은 선택. 요약 dict 반환."""
+                   eps=0.7, min_area=16.0, progress=None, keep_excluded=False):
+    """progress(i, n, stem) 콜백은 선택. 요약 dict 반환.
+    refine_dataset.py 가 state 에 train_exclude 를 표시한 프레임(잘림·주변 물체·중앙 이탈)은 기본으로 건너뛴다 (keep_excluded 로 포함)."""
     if copy_mode not in COPY_MODES:
         raise ValueError(copy_mode)
     out_dir = os.path.abspath(out_dir)
-    stems = [s for s in ds.stems if ds.state.status(s) in statuses]
+    stems = [s for s in ds.stems if ds.state.status(s) in statuses
+             and (keep_excluded or not ds.state.get(s).get('train_exclude'))]
+    n_refined_out = sum(1 for s in ds.stems if ds.state.status(s) in statuses and ds.state.get(s).get('train_exclude')) if not keep_excluded else 0
     if not stems:
         raise ValueError('내보낼 이미지가 없습니다 (선택한 상태에 해당하는 항목 없음)')
     split = split_stems(stems, ds.code, val_ratio, seed) if val_ratio > 0 else {s: '' for s in stems}
@@ -112,5 +115,5 @@ def export_dataset(ds, out_dir, statuses=('ok',), val_ratio=0.1, seed=0, copy_mo
 
     n_val = sum(1 for v in split.values() if v == 'val')
     return dict(out_dir=out_dir, n_total=len(stems), n_train=len(stems) - n_val, n_val=n_val,
-                n_edited=n_edited, n_empty=n_empty,
+                n_edited=n_edited, n_empty=n_empty, n_refine_excluded=n_refined_out,
                 cls_count={ds.names.get(k, str(k)): v for k, v in sorted(cls_count.items())})

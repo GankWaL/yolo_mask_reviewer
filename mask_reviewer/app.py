@@ -209,7 +209,7 @@ class MainWindow(QMainWindow):
         self.code_filter = QComboBox()
         self.status_filter = QComboBox()
         for k, t in (('all', '전체'), ('pending', '보류'), ('ok', '확정'), ('reject', '제외'), ('edited', '편집됨'),
-                     ('auto', '자동 라벨'), ('exemplar', '대표')):
+                     ('auto', '자동 라벨'), ('exemplar', '대표'), ('train_exclude', '정제 제외(학습 미사용)')):
             self.status_filter.addItem(t, k)
         self.search = QLineEdit()
         self.search.setPlaceholderText('파일명 검색')
@@ -713,6 +713,9 @@ class MainWindow(QMainWindow):
             elif st == 'exemplar':
                 if not self.ds.state.exemplar(s):
                     continue
+            elif st == 'train_exclude':
+                if not self.ds.state.get(s).get('train_exclude'):
+                    continue
             elif st != 'all' and self.ds.state.status(s) != st:
                 continue
             if q and q not in s.lower():
@@ -860,6 +863,8 @@ class MainWindow(QMainWindow):
         if 'reason' in r:
             lines.append(f'reason {r.get("reason")} · 검출 {r.get("n_det")} · top {r.get("top_cls")} '
                          f'conf {r.get("top_conf")} · fill {r.get("top_fill")}')
+        if self.ds.state.get(s).get('train_exclude'):
+            lines.append(f'<span style="color:#c00">정제 제외(학습 미사용): {self.ds.state.get(s).get("refine_reasons", "")}</span>')
         if 'cad_status' in r:
             st_col = '#080' if r.get('cad_status') == 'ok' else '#c00'
             lines.append(f'구멍: 확정 <b>{r.get("holes_confirmed_px")}</b>px · 모델만 {r.get("model_only_px")} · CAD만 {r.get("cad_only_px")}'

@@ -126,6 +126,20 @@ python scripts/propagate_holes.py ~/jhw/data/SL/field_all_<날짜> --exemplars-f
 원격 것을 그대로 두고 자동 필드(auto·cross_iou·holes)만 얹는다. 어느 쪽이든 **제외(reject)인 stem 은 reject 로 남는다** — 자동
 처리가 제외를 되살리지 않는다. 전파(`propagate_holes.py`, GUI 전파)도 보류 프레임만 대상으로 하고 reject 는 건드리지 않는다.
 
+### 학습 데이터셋 정제 (`scripts/refine_dataset.py`, 2026-09-22)
+
+제품이 **중앙 부근에 온전히, 단독으로** 있는 프레임만 학습에 쓴다. 프레임마다 유효 라벨의 가장 큰 인스턴스로 잰다.
+
+- `multi` 라벨 인스턴스 2개 이상 · `border` 마스크가 크롭 경계(3px)에 20px 이상 닿음 · `partial` 경계 띠(6px)에 닿으면서 면적이
+  같은 코드의 온전한 프레임 중앙값의 95% 미만 · `offcenter` 마스크 중심이 화면 중심에서 폭·높이의 25% 밖 ·
+  `neighbor` 현장 YOLO(conf 0.1) 재검출에서 라벨과 안 겹치는 물체, 또는 벨트색(녹색 H 18\~75, S·V 중간)이 아닌 전경 덩어리
+  (2,500px 이상, 라벨 15px 밖·벨트 중앙 띠 15\~85% 안 — 가장자리에 잘린 이웃 제품도 잡힘, 제품 그림자는 뺌).
+- 면적 비율만으로는 자세(yaw)가 달라 정상 프레임까지 걸리므로 경계에 닿을 때만 쓴다. 벨트색은 조명 때문에 위치마다 달라
+  통계 대신 고정 임계값을 쓴다.
+- 결과 `refine_report.csv`. `--apply` 면 state 에 `train_exclude`·`refine_reasons` 를 쓴다(판정은 그대로). 내보내기는 `train_exclude`
+  프레임을 기본으로 건너뛰고(`--keep-excluded` 로 포함), 목록 필터 `정제 제외(학습 미사용)` 로 툴에서 볼 수 있다.
+  2026-09-22 field_data_hole_all: 5,357장 중 통과 3,559(이웃 1,793·중앙 이탈 34·경계 18·복수 3 제외).
+
 ### 여러 검수 데이터셋 모으기 (`scripts/gather_datasets.py`)
 
 `--out OUT SRC …` 로 검수 데이터셋들을 하나로 합친다: 이미지 하드링크, **유효 라벨(편집본 > 자동 > 원본)을 원본 라벨로**, 재지정
