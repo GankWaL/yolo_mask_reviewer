@@ -217,6 +217,18 @@ class MainWindow(QMainWindow):
         fr.addWidget(self.code_filter, 2)
         fr.addWidget(self.status_filter, 1)
         ll.addLayout(fr)
+        er = QHBoxLayout()
+        er.addWidget(QLabel('제품의 ★ 대표:'))
+        self.ex_has = QCheckBox('있음')
+        self.ex_none = QCheckBox('없음')
+        self.ex_has.setToolTip('같은 12자리 제품코드에 ★ 대표가 한 장이라도 있는 이미지만 (재지정 코드 기준)')
+        self.ex_none.setToolTip('같은 12자리 제품코드에 ★ 대표가 없는 이미지만 — 아직 대표를 만들어야 하는 제품')
+        er.addWidget(self.ex_has)
+        er.addWidget(self.ex_none)
+        self.ex_summary = QLabel('')
+        self.ex_summary.setStyleSheet('color:#666')
+        er.addWidget(self.ex_summary, 1)
+        ll.addLayout(er)
         sr = QHBoxLayout()
         sr.addWidget(self.search, 1)
         self.sort_combo = QComboBox()
@@ -242,6 +254,8 @@ class MainWindow(QMainWindow):
         ll.addWidget(self.progress)
         self.code_filter.currentIndexChanged.connect(self.refresh_list)
         self.status_filter.currentIndexChanged.connect(self.refresh_list)
+        self.ex_has.toggled.connect(self.refresh_list)
+        self.ex_none.toggled.connect(self.refresh_list)
         self.sort_combo.currentIndexChanged.connect(self.refresh_list)
         self.search.textChanged.connect(self.refresh_list)
 
@@ -515,8 +529,15 @@ class MainWindow(QMainWindow):
         self.code_filter.blockSignals(True)
         self.code_filter.clear()
         self.code_filter.addItem(f'전체 제품 ({len(ds.stems)})', '')
-        for code, n in sorted(ds.codes().items()):
-            self.code_filter.addItem(f'{code or "(코드 없음)"} ({n})', code)
+        ex_by_code = {}
+        for s_ in ds.exemplars():
+            ex_by_code[ds.code(s_)] = ex_by_code.get(ds.code(s_), 0) + 1
+        codes = ds.codes()
+        for code, n in sorted(codes.items()):
+            k = ex_by_code.get(code, 0)
+            self.code_filter.addItem(f'{code or "(코드 없음)"} ({n})' + (f' ★{k}' if k else ' —'), code)
+        n_has = sum(1 for c in codes if ex_by_code.get(c))
+        self.ex_summary.setText(f'대표 있는 제품 {n_has} / {len(codes)}  (없는 제품 {len(codes) - n_has}, {sum(n for c, n in codes.items() if not ex_by_code.get(c))}장)')
         i = self.code_filter.findData(keep) if keep else 0
         self.code_filter.setCurrentIndex(max(i, 0))
         self.code_filter.blockSignals(False)
@@ -675,9 +696,13 @@ class MainWindow(QMainWindow):
         code = self.code_filter.currentData() or ''
         st = self.status_filter.currentData() or 'all'
         q = self.search.text().strip().lower()
+        ex_has, ex_none = self.ex_has.isChecked(), self.ex_none.isChecked()
+        codes_with_ex = {self.ds.code(s_) for s_ in self.ds.exemplars()} if ex_has != ex_none else None
         out = []
         for s in self.ds.stems:
             if code and self.ds.code(s) != code:
+                continue
+            if codes_with_ex is not None and ((self.ds.code(s) in codes_with_ex) != ex_has):
                 continue
             if st == 'edited':
                 if not self.ds.is_edited(s):
@@ -830,6 +855,7 @@ class MainWindow(QMainWindow):
         lines = [f'<b>{s}</b>' + (' <span style="color:#b80">★ 대표</span>' if self.ds.state.exemplar(s) else ''),
                  f'제품 <b>{r.get("code", "")}</b>'
                  + (f' <span style="color:#c60">(수정됨, 원본 {self.ds.orig_code(s) or "없음"})</span>' if self.ds.state.code(s) else '')
+                 + (lambda k: f' · ★ 대표 {k}장' if k else ' · <span style="color:#c00">★ 대표 없음</span>')(len(self.ds.exemplars(r.get('code', ''))))
                  + f' · {w}×{h} · 라벨: <span style="color:{color}">{self._label_desc(s)}</span>']
         if 'reason' in r:
             lines.append(f'reason {r.get("reason")} · 검출 {r.get("n_det")} · top {r.get("top_cls")} '
@@ -938,6 +964,10 @@ class MainWindow(QMainWindow):
             self.ds.state.set(self.stem, exemplar=False)
             self.say('대표 해제')
         self._refresh_item(self.stem)
+        self._refresh_code_filter()   # 제품 콤보의 ★ 수·요약 갱신
+        self._refresh_info()
+        if self.ex_has.isChecked() != self.ex_none.isChecked():
+            self.refresh_list()       # 대표 유무 필터가 켜져 있으면 목록도 다시
         self._refresh_info()
 
     # ================================================================ 자동 라벨 (SAM2 대표 전파)

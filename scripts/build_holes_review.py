@@ -40,7 +40,7 @@ from mask_reviewer import maskops  # noqa: E402
 
 SLIA = os.path.expanduser('~/jhw/SL_Inspection_Automation')
 CORE = os.path.join(SLIA, 'core_utils')
-OBJ_DIR = os.path.join(SLIA, 'obj_product_name_BK9_260805')
+OBJ_DIR = os.path.join(SLIA, 'obj_product_name_260805')
 CODE_RE = re.compile(r'_([0-9A-Z]{12})(?=[_.]|$)')
 # 검수 툴 클래스 이름 → 운영 대분류 키 (가중치 표·fitness 문턱)
 SORT_OF = {'b_cvr': 'B/CVR', 'cap': 'CAP', 'h_cvr': 'H/CVR', 'hsg': 'HSG', 'scalp': 'SCALP'}

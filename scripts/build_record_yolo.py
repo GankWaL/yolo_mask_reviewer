@@ -35,7 +35,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 from mask_reviewer.maskops import mask_to_yolo_line  # noqa: E402  (keep_holes=True 면 다리 폴리곤)
 
-DEFAULT_OBJ = os.path.expanduser('~/jhw/SL_Inspection_Automation/obj_product_name_BK9_260805')
+DEFAULT_OBJ = os.path.expanduser('~/jhw/SL_Inspection_Automation/obj_product_name_260805')
 DEFAULT_BASE = os.path.expanduser('~/jhw/SL_Inspection_Automation/models/yolo11s_best_20260919.pt')
 
 
