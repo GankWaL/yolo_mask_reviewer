@@ -50,8 +50,10 @@ def _place(src, dst, mode):
 
 
 def export_dataset(ds, out_dir, statuses=('ok',), val_ratio=0.1, seed=0, copy_mode='copy',
-                   eps=0.7, min_area=16.0, progress=None, keep_excluded=False, round_name=None):
+                   eps=0.7, min_area=16.0, progress=None, keep_excluded=False, round_name=None, drop_classes=None):
     """progress(i, n, stem) 콜백은 선택. 요약 dict 반환.
+    drop_classes: 학습에서 완전히 뺄 클래스 이름 (None 이면 ds.dropped_names = dataset.yaml dropped_names + 5클래스의 'cap').
+    그 클래스 인스턴스는 버리고 names 에서도 빼서 id 를 앞으로 당긴다 (2026-09-23 cap 제외 규칙).
     refine_dataset.py 가 state 에 train_exclude 를 표시한 프레임(잘림·주변 물체·중앙 이탈)은 기본으로 건너뛴다 (keep_excluded 로 포함)."""
     if copy_mode not in COPY_MODES:
         raise ValueError(copy_mode)
@@ -61,6 +63,10 @@ def export_dataset(ds, out_dir, statuses=('ok',), val_ratio=0.1, seed=0, copy_mo
     n_refined_out = sum(1 for s in ds.stems if ds.state.status(s) in statuses and ds.state.get(s).get('train_exclude')) if not keep_excluded else 0
     if not stems:
         raise ValueError('내보낼 이미지가 없습니다 (선택한 상태에 해당하는 항목 없음)')
+    drop = set(ds.dropped_names if drop_classes is None else drop_classes)
+    kept_ids = [k for k, v in sorted(ds.names.items()) if v not in drop]
+    id_map = {k: i for i, k in enumerate(kept_ids)}   # 옛 id → 새 id (제외 클래스는 없음)
+    n_dropped_inst = 0
     split = split_stems(stems, ds.code, val_ratio, seed) if val_ratio > 0 else {s: '' for s in stems}
     splits = sorted({v for v in split.values()})
     for sp in splits:
@@ -85,12 +91,19 @@ def export_dataset(ds, out_dir, statuses=('ok',), val_ratio=0.1, seed=0, copy_mo
             text = ds.instances_to_text(ds.parse_instances(ds.label_text(stem), w, h), w, h, eps, min_area)
         else:
             text = ds.label_text(stem)
-        lines = [l for l in text.splitlines() if l.strip()]
+        lines = []
+        for l in text.splitlines():
+            v = l.split()
+            if not v:
+                continue
+            c = int(float(v[0]))
+            if c not in id_map:
+                n_dropped_inst += 1
+                continue
+            lines.append(f'{id_map[c]} ' + ' '.join(v[1:]))
+            cls_count[id_map[c]] = cls_count.get(id_map[c], 0) + 1
         if not lines:
             n_empty += 1
-        for l in lines:
-            c = int(float(l.split()[0]))
-            cls_count[c] = cls_count.get(c, 0) + 1
         with open(os.path.join(out_dir, 'labels', sp, stem + '.txt'), 'w', encoding='utf-8') as f:
             f.write('\n'.join(lines) + ('\n' if lines else ''))
         rows.append(dict(stem=stem, code=ds.code(stem), split=sp or 'all', status=ds.state.status(stem),
@@ -100,13 +113,15 @@ def export_dataset(ds, out_dir, statuses=('ok',), val_ratio=0.1, seed=0, copy_mo
     y = {'path': out_dir,
          'train': 'images/train' if val_ratio > 0 else 'images',
          'val': 'images/val' if val_ratio > 0 else 'images',
-         'names': {int(k): v for k, v in sorted(ds.names.items())}}
+         'names': {id_map[k]: ds.names[k] for k in kept_ids}}
+    if drop:
+        y['dropped_names'] = sorted(drop)
     if ds.keep_holes:
         y['keep_holes'] = True   # 편집본 폴리곤이 구멍을 남긴 다리 폴리곤임을 표시
     with open(os.path.join(out_dir, 'dataset.yaml'), 'w', encoding='utf-8') as f:
         f.write(f'# exported by mask_reviewer from {ds.root}\n'
                 f'# statuses={",".join(statuses)} val_ratio={val_ratio} seed={seed} eps={eps} min_area={min_area}'
-                f' keep_holes={int(ds.keep_holes)}\n')
+                f' keep_holes={int(ds.keep_holes)} dropped_classes={",".join(sorted(drop)) or "-"}\n')
         yaml.safe_dump(y, f, allow_unicode=True, sort_keys=False)
     with open(os.path.join(out_dir, 'export_manifest.csv'), 'w', newline='', encoding='utf-8') as f:
         wr = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
@@ -120,5 +135,6 @@ def export_dataset(ds, out_dir, statuses=('ok',), val_ratio=0.1, seed=0, copy_mo
         ds.state.save()
     n_val = sum(1 for v in split.values() if v == 'val')
     return dict(out_dir=out_dir, n_total=len(stems), n_train=len(stems) - n_val, n_val=n_val,
-                n_edited=n_edited, n_empty=n_empty, n_refine_excluded=n_refined_out,
-                cls_count={ds.names.get(k, str(k)): v for k, v in sorted(cls_count.items())})
+                n_edited=n_edited, n_empty=n_empty, n_refine_excluded=n_refined_out, n_dropped_inst=n_dropped_inst,
+                dropped_classes=sorted(drop),
+                cls_count={y['names'].get(k, str(k)): v for k, v in sorted(cls_count.items())})

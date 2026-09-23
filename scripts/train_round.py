@@ -83,7 +83,14 @@ def main():
         y = load_yaml(p)
         y['__file__'] = p
         if names_of(y) != base_names:
-            sys.exit(f'클래스가 기준 모델과 다릅니다: {p}\n  모델 {base_names}\n  데이터 {names_of(y)}')
+            ## 학습 제외 클래스(cap)만 빠진 목록이면 허용 — 새 클래스 수로 헤드가 다시 초기화된다 (2026-09-23 cap 제외 규칙)
+            dn = list(names_of(y).values())
+            bn = [v for v in base_names.values() if v not in (y.get('dropped_names') or ['cap'])]
+            if dn == bn:
+                print(f'클래스 {len(base_names)} → {len(dn)} (제외: {sorted(set(base_names.values()) - set(dn))}); 기준 모델의 분류 헤드는 새로 초기화됩니다')
+                base_names = names_of(y)
+            else:
+                sys.exit(f'클래스가 기준 모델과 다릅니다: {p}\n  모델 {base_names}\n  데이터 {names_of(y)}')
         train += resolve_split(y, 'train')
         val += resolve_split(y, 'val')
     for d in train + val:

@@ -160,7 +160,20 @@ def fetch(dates):
 
 # ----------------------------------------------------------------------------- 1b. newcodes
 JSON_RE = re.compile(r'^(.+)/(\d{5})_([0-9A-Z]{12})\.json$')
-SORT_TO_CLS = {'SCALP': 'scalp', 'HSG': 'hsg', 'H/CVR': 'h_cvr', 'B/CVR': 'b_cvr', 'CAP': 'cap'}
+SORT_TO_CLS = {'SCALP': 'scalp', 'HSG': 'hsg', 'H/CVR': 'h_cvr', 'B/CVR': 'b_cvr'}   # CAP 은 학습 제외 → 수집하지 않음 (2026-09-23)
+
+
+def is_cap_code(code):
+    """12자리 코드가 CAP 대분류(obj 이름)면 True. 학습에서 완전히 뺀 클래스라 newcodes 상한 채우기에서도 건너뛴다."""
+    try:
+        sys.path.insert(0, HERE)
+        from reassign_codes import obj_class
+        from build_holes_review import OBJ_DIR
+        if not hasattr(is_cap_code, '_caps'):
+            is_cap_code._caps = {f[:12] for f in os.listdir(OBJ_DIR) if f.lower().endswith('.obj') and obj_class(f[:-4]) == 'cap'}
+        return code in is_cap_code._caps
+    except Exception:
+        return False
 
 
 def code_counts(ds):
@@ -288,7 +301,7 @@ def newcodes(dates, ds):
             if not m or os.path.basename(m.group(1)).startswith('nodet_'):
                 continue
             by_code[alias.get(m.group(3), m.group(3))].append(rel)   # 현장 코드 → 재지정 코드 (대응표)
-        short = {c: cap - have.get(c, 0) for c in by_code if have.get(c, 0) < cap}
+        short = {c: cap - have.get(c, 0) for c in by_code if have.get(c, 0) < cap and not is_cap_code(c)}
         if not short:
             log(f'newcodes {d}: 성공 프레임 코드 {len(by_code)}종, 전부 상한({cap}) 충족')
             continue

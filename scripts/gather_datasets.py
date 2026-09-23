@@ -10,6 +10,8 @@
   OUT/review_state.json          status·code·exemplar·note·auto 메타 유지 (code 는 SRC 의 재지정 코드; 없으면 안 씀)
   OUT/manifest.csv               stem, source(SRC/split), code(최종), status, label_src, has_holes(라벨에 구멍 있음), n_inst, reason 등 SRC manifest 열
   OUT/dataset.yaml               names 는 --names-from(기본 첫 SRC), keep_holes: true
+  기본으로 끝에 convert_dataset_classes.py 를 적용해 클래스를 12자리 제품코드(322, cap 제외) 체계로 바꾼다 (--codes-yaml 로 목록 지정, --no-codes 로 끔).
+  이후 relabel_with_model.py --model retrain/autolabel_current.pt (--map-codes 없이) 로 모델 추정 코드를 인스턴스 클래스로 채운다.
 """
 import argparse
 import csv
@@ -45,6 +47,8 @@ def main():
     ap.add_argument('--out', required=True)
     ap.add_argument('--prefix', action='store_true')
     ap.add_argument('--names-from', default='')
+    ap.add_argument('--codes-yaml', default='', help='제품코드 클래스 목록 yaml (기본 convert_dataset_classes.DEFAULT_CODES_YAML)')
+    ap.add_argument('--no-codes', action='store_true', help='제품코드 클래스 변환을 하지 않고 SRC 의 names 를 그대로 둔다')
     a = ap.parse_args()
     for d in ('images', 'labels'):
         os.makedirs(os.path.join(a.out, d), exist_ok=True)
@@ -122,6 +126,11 @@ def main():
     import collections
     print(f'완료 {len(rows)} 장 → {a.out}: 코드 {len({r["code"] for r in rows if r["code"]})}, 구멍 라벨 {sum(r["has_holes"] for r in rows)}, '
           f'상태 {dict(collections.Counter(r["status"] for r in rows))}, 라벨 출처 {dict(collections.Counter(r["label_src"] for r in rows))}')
+    if not a.no_codes:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from convert_dataset_classes import convert, DEFAULT_CODES_YAML
+        n_files, n_inst, n_nocode, extra, n_drop = convert(a.out, a.codes_yaml or DEFAULT_CODES_YAML)
+        print(f'클래스 → 제품코드 변환: 라벨 파일 {n_files}, 인스턴스 {n_inst}, 코드 없는 파일 {n_nocode}, 목록 밖 코드 덧붙임 {extra}, 제외 클래스(cap) 버림 {n_drop}')
 
 
 if __name__ == '__main__':

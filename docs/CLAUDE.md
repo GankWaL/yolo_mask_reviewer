@@ -25,3 +25,13 @@
 
 ## 학습 규칙 (2026-09-23)
 - YOLO 학습(train_codes.py·train_round.py·exp 스크립트·auto_retrain)은 **강건성 증강을 기본으로 포함**한다: hsv_h 0.03, hsv_s 0.8, hsv_v 0.6, 회전 ±10°, 이동 0.15, 스케일 0.7, copy_paste 0.1, bgr 0.05 + albumentations(Blur·MedianBlur·ToGray·CLAHE 자동). 사무실·현장처럼 조명과 벨트색이 다른 환경에서 마스크가 흔들리지 않게 하기 위함 (yolo_mask_reviewer 환경에 albumentations 설치됨). 12자리 코드 모델은 fliplr 0 유지, 5클래스 모델은 fliplr 0.5.
+
+## 오토라벨 클래스 = 12자리 제품코드, CAP 은 학습 제외 (2026-09-23)
+- 새 검수 데이터셋의 인스턴스 클래스는 5클래스가 아니라 제품코드 **322 클래스**(`yolo26_dataset/codes_20260921/codes_nocap_20260923.yaml`
+  = 328 에서 CAP 6종을 뺀 것)다. `gather_datasets.py` 가 기본으로 변환하고, 오토라벨은 `relabel_with_model.py`(기본 모델
+  `retrain/autolabel_current.pt` = yolo26x r2)를 `--map-codes` 없이 돌린다. 학습 안 된 코드는 검수자가 `제품코드 변경…`(모델 추정 코드 표시)으로
+  확정한다. 코드는 자동으로 바꾸지 않는다.
+- **CAP 대분류는 현장에서 검사하지 않으므로 학습에서 완전히 뺀다** (jhw 2026-09-23). 클래스 목록 yaml 의 `dropped_names`(cap 코드 6종, 5클래스는 `cap`)
+  인스턴스를 변환·내보내기(`export --drop-classes`, 기본)·재라벨·`remap_field_codes.py`(`skip_dropped_class`)에서 버리고 names 에서도 빼
+  id 를 당긴다. 5클래스 모델은 앞으로 4클래스(b_cvr, h_cvr, hsg, scalp)로 학습된다 — SLIA 런타임은 클래스 **이름**으로 동작하므로 코드 수정 없이 쓸 수 있다.
+  현장 수집(`field_autolabel.py`)도 CAP 프레임·CAP 코드(newcodes)를 받지 않는다.

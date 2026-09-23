@@ -26,6 +26,8 @@ python3 -m mask_reviewer rescore DATASET   # 기존 자동 라벨의 원본 대�
 - 가운데: 이미지 + 마스크 오버레이. 휠 확대, 휠클릭(또는 Ctrl+드래그) 이동, `F` 화면 맞춤.
 - 오른쪽: manifest 정보(제품, reason, conf), 인스턴스 목록, 편집 버튼, 판정 버튼, 메모.
   이미지에 적힌 제품코드가 틀렸으면 `제품코드 변경…` 으로 고친다: 데이터셋에 있는 12자리 코드를 고르거나 직접 입력, `원본으로` 로 되돌림.
+  제품코드 클래스 데이터셋(아래 "클래스 = 제품코드")이면 대화상자에 **모델 추정 코드**(라벨 인스턴스의 클래스)가 같이 보이고
+  `모델 추정으로` 버튼으로 바로 저장할 수 있다. 목록에는 클래스 목록의 코드(학습 안 된 것 포함)도 들어 있다.
   왼쪽 목록에서 여러 장을 선택(Shift+드래그·드래그·Shift/Ctrl+클릭)한 뒤 누르면 선택 전부에 한 번에 적용된다 (`원본으로` 는 각자 자기 원본 코드로).
   고친 값은 `review_state.json` 의 `code` 에 저장되고(manifest.csv·파일명은 그대로) 제품 필터·정렬·대표 전파·내보내기(층화 분할, export_manifest.csv)·재검수 묶음에 모두 반영된다.
 
@@ -135,6 +137,29 @@ python scripts/propagate_holes.py ~/jhw/data/SL/field_all_<날짜> --exemplars-f
 코드·판정·대표·자동 라벨 메타를 state 에 유지, `aux/` 복사, manifest 에 source·code·status·label_src·has_holes. 같은 stem 이
 여러 SRC 에 있으면 앞의 SRC 가 이기고 `--prefix` 면 SRC 이름을 붙여 모두 남긴다. YOLO 폴더(images/<split>)도 SRC 로 받는다.
 
+### 클래스 = 12자리 제품코드, CAP 제외 (`scripts/convert_dataset_classes.py`, 2026-09-23)
+
+새로 들어오는 검수 데이터셋의 인스턴스 클래스는 대분류 5클래스가 아니라 **12자리 제품코드(322 클래스,
+`yolo26_dataset/codes_20260921/codes_nocap_20260923.yaml`)** 다. 328 코드 목록(`holes_all_r3_20260923.yaml`)에서 현장에서 검사하지 않는
+**CAP 대분류 6종을 뺀 것**이고, 뺀 코드는 yaml 의 `dropped_names` 에 있다. `gather_datasets.py` 가 끝에 자동으로 변환한다
+(`--no-codes` 로 끔, `--codes-yaml` 로 목록 지정). 이미 있는 데이터셋은 `python scripts/convert_dataset_classes.py DATASET`.
+- 5클래스 데이터셋은 라벨의 모든 인스턴스를 **그 프레임의 코드**(재지정 코드 > 파일명) id 로 바꾼다. 이미 코드 체계인 데이터셋은 인스턴스의
+  **클래스 이름**으로 새 id 를 찾아 모델 추정 코드를 보존한다(`--by-code` 로 프레임 코드 재배정). 목록에 없는 코드(`gate`, `none`, 신규 제품)는
+  목록 뒤에 덧붙이고, `dropped_names`(cap) 인스턴스는 버린다. 이전 names 는 dataset.yaml 의 `names_prev` 에 남는다.
+- 그 뒤 `relabel_with_model.py DATASET --keep-sam2`(기본 모델 = `retrain/autolabel_current.pt`, 328 코드 yolo26x, `--map-codes` 없이)
+  를 돌리면 **모델이 추정한 코드가 인스턴스 클래스**로 들어간다(모델 클래스 이름 → 데이터셋 id; 데이터셋에 없는 cap 검출은 버림).
+  현장 코드(파일명)와 다르면 툴의 `제품코드 변경…` 에 모델 추정 코드가 보이므로 검수자가 확인해 확정한다 — 자동으로 코드를 바꾸지는 않는다.
+  09-23 `field_new_20260923` 에서 확인한 사례: 현장 코드 10T031000NT9(흰 캡)로 들어온 프레임이 실제로는 10K082000NT9(회색 스컬캡) 모양이었고
+  모델이 60장 중 59장을 그렇게 찍었다.
+- 학습 내보내기는 그대로다: `remap_field_codes.py` 가 확정 프레임의 **state 코드**로 클래스를 다시 쓰므로, 검수자가 확정한 코드가 학습된다.
+  학습되지 않은 코드(학습셋에 없음)는 모델이 다른 코드로 찍으므로 검수자가 코드 변경으로 바로잡는다. cap 코드 프레임은 `skip_dropped_class`.
+
+**CAP 학습 제외 (2026-09-23)** — cap 은 현장에서 검사하지 않으므로 학습에서 완전히 뺀다. 데이터셋의 `dropped_names`(5클래스면 자동으로 `cap`)가
+기준이고, 내보내기(Ctrl+E, `export --drop-classes`, 기본)는 그 인스턴스를 버리고 names 에서도 빼 id 를 당긴다 → 5클래스 내보내기는
+**4클래스(0 b_cvr, 1 h_cvr, 2 hsg, 3 scalp)** 가 된다. `train_round.py` 는 기준 모델(5클래스)에서 cap 만 빠진 목록이면 그대로 학습한다(분류 헤드
+재초기화). SLIA 런타임(`yolo_seg_cls_map`)은 클래스 이름으로 동작해 4클래스 모델을 코드 수정 없이 쓴다. 현장 수집(`field_autolabel.py`)은 CAP
+프레임과 CAP 코드(newcodes)를 받지 않는다. 검수 데이터셋(`field_data_hole_all_20260921` 등)의 names 는 손대지 않는다(검수 중 id 변경 방지).
+
 ## 순환 라벨링 (대표 1장 → 자동 라벨 → 검수 → 재학습)
 
 제품마다 잘 맞는 라벨 한 장만 사람이 만들고, 나머지는 자동으로 채운 뒤 검수만 하는 흐름이다.
@@ -166,9 +191,9 @@ python scripts/propagate_holes.py ~/jhw/data/SL/field_all_<날짜> --exemplars-f
    클래스 이름·순서가 기준 모델(b_cvr, cap, h_cvr, hsg, scalp)과 다르면 중단한다.
 5. **재추론** — 새 모델로 아직 보류인 이미지의 자동 라벨을 갱신하고 3 으로 돌아간다:
    ```bash
-   python scripts/relabel_with_model.py DATASET --model runs/round_.../yolo11s_best_20260326_round_YYYYMMDD.pt
+   CUDA_DEVICE_ORDER=PCI_BUS_ID python scripts/relabel_with_model.py DATASET --keep-sam2   # 기본 --model retrain/autolabel_current.pt, --device 1 (4070 Ti)
    ```
-   SAM2 전파 결과를 남기려면 `--keep-sam2`. 점수는 검출 conf 평균, 원본 대비 차이도 함께 기록되며 툴에서 `⟳` 와 `yolo:<모델>` 로 표시된다.
+   다른 모델은 `--model` 로. 5클래스 데이터셋에 제품코드 모델을 쓰려면 `--map-codes`. SAM2 전파 결과를 남기려면 `--keep-sam2`. 점수는 검출 conf 평균, 원본 대비 차이도 함께 기록되며 툴에서 `⟳` 와 `yolo:<모델>` 로 표시된다.
 6. 라운드를 반복하다 검수 통과율이 충분해지면 round 가중치를 `SL_Inspection_Automation/models/` 에 넣고
    운영 코드의 `yolo_base_model` 을 바꾼다 (스크립트가 자동으로 복사하지 않는다).
 
@@ -178,7 +203,7 @@ python scripts/propagate_holes.py ~/jhw/data/SL/field_all_<날짜> --exemplars-f
 OUT/
   images/train, images/val     (val 비율 0 이면 images/ 평면 — 학습 서버에서 분할)
   labels/train, labels/val     편집본은 마스크→폴리곤(단순화 eps 0.7px, 16px² 미만 조각 버림), 미편집은 원본 그대로
-  dataset.yaml                 path/train/val/names (names 는 원본 dataset.yaml 과 동일)
+  dataset.yaml                 path/train/val/names (원본 names 에서 학습 제외 클래스 dropped_names·cap 을 뺀 목록, id 당김; 2026-09-23)
   export_manifest.csv          stem, code, split, status, edited, label_src(reviewed/auto/original), n_inst, source
 ```
 

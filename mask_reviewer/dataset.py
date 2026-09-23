@@ -167,6 +167,10 @@ class Dataset:
         # 구멍 유지: dataset.yaml 의 keep_holes: true 면 저장·자동 라벨·내보내기 폴리곤이 구멍을 남긴다 (다리 폴리곤).
         # 읽기는 cv2.fillPoly 의 짝홀 채움이라 어느 쪽 라벨이든 그대로 마스크가 된다.
         self.keep_holes = bool(y.get('keep_holes', False))
+        # 학습에서 완전히 뺀 클래스 이름 (dataset.yaml dropped_names; 5클래스 데이터셋이면 'cap'). 내보내기·재라벨에서 버린다 (2026-09-23).
+        self.dropped_names = [str(n) for n in (y.get('dropped_names') or [])]
+        if 'cap' in self.names.values() and 'cap' not in self.dropped_names:
+            self.dropped_names.append('cap')
 
 
     # ------------------------------------------------------------ 경로/메타
@@ -350,6 +354,18 @@ class Dataset:
         return c
 
     # ------------------------------------------------------------ 라벨 읽기/쓰기
+    def model_code(self, stem):
+        """유효 라벨의 인스턴스 클래스 이름이 12자리 제품코드(제품코드 클래스 데이터셋)면 그 코드(가장 많은 것). 아니면 None."""
+        text = self.label_text(stem)
+        cnt = {}
+        for line in (text or '').splitlines():
+            v = line.split()
+            if len(v) >= 7:
+                name = self.names.get(int(v[0]))
+                if name and is_full_code(name):
+                    cnt[name] = cnt.get(name, 0) + 1
+        return max(cnt, key=cnt.get) if cnt else None
+
     def label_text(self, stem):
         p = self.effective_label_path(stem)
         if not os.path.exists(p):

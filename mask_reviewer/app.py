@@ -564,16 +564,24 @@ class MainWindow(QMainWindow):
         f = QFormLayout(d)
         f.addRow('이미지', QLabel(self.stem if len(stems) == 1 else f'{len(stems)}장 선택 ({stems[0]} …)'))
         f.addRow('원본 코드', QLabel((next(iter(origs)) or '(없음)') if len(origs) == 1 else f'(여러 값: {len(origs)}종)'))
+        models = {self.ds.model_code(t) for t in stems}
+        model_code = next(iter(models)) if len(models) == 1 else None
+        f.addRow('모델 추정 코드', QLabel((model_code or '(없음)') if len(models) == 1 else f'(여러 값: {len(models)}종)'))
         combo = QComboBox()
         combo.setEditable(True)
         combo.setInsertPolicy(QComboBox.NoInsert)
-        for code in sorted(c for c in self.ds.codes() if is_full_code(c)):
+        listed = {c for c in self.ds.codes() if is_full_code(c)} | {n for n in self.ds.names.values() if is_full_code(n)}
+        for code in sorted(listed):
             combo.addItem(code)
         combo.setCurrentText(self.ds.code(self.stem) if len(curs) != 1 else next(iter(curs)))
         combo.lineEdit().selectAll()
-        combo.setToolTip('목록: 이 데이터셋에 있는 12자리 제품코드. 직접 입력도 가능 (대문자로 저장)')
+        combo.setToolTip('목록: 이 데이터셋에 있는 12자리 제품코드 + 클래스 목록의 제품코드. 직접 입력도 가능 (대문자로 저장)')
         f.addRow('제품코드', combo)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        if model_code:
+            use_model = bb.addButton('모델 추정으로', QDialogButtonBox.ActionRole)
+            use_model.setToolTip('제품코드 클래스 모델(yolo26x 328 코드)이 라벨에 적어 둔 코드를 제품코드로 저장')
+            use_model.clicked.connect(lambda: (combo.setCurrentText(model_code), d.accept()))
         reset = bb.addButton('원본으로', QDialogButtonBox.ResetRole)
         reset.setEnabled(any(self.ds.state.code(t) for t in stems))
         reset.setToolTip('각 이미지를 자기 원본 코드(manifest·파일명)로 되돌린다')

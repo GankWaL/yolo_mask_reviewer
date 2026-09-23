@@ -32,6 +32,7 @@ def main():
         ref = yaml.safe_load(f)
     names = {int(k): v for k, v in ref['names'].items()}
     cid = {v: k for k, v in names.items()}
+    dropped = set(str(n) for n in (ref.get('dropped_names') or []))   # 학습 제외 코드 (cap, 2026-09-23)
 
     rows = []
     stat = {}
@@ -58,7 +59,7 @@ def main():
                     code = m.group(1) if m else None
                 lab = os.path.join(src, 'labels', ssp, stem + '.txt')
                 if code is None or code not in cid:
-                    st = 'skip_nocode' if code is None else 'skip_unknown_code'
+                    st = 'skip_nocode' if code is None else ('skip_dropped_class' if code in dropped else 'skip_unknown_code')
                 elif not os.path.exists(lab):
                     st = 'skip_nolabel'
                 else:

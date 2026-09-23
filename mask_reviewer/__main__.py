@@ -46,6 +46,7 @@ def _cli(argv):
     e.add_argument('--min-area', type=float, default=16.0)
     e.add_argument('--keep-excluded', action='store_true', help='refine_dataset.py 가 train_exclude 표시한 프레임도 포함')
     e.add_argument('--round', default=None, help='학습 라운드 이름 — 내보낸 프레임의 state 에 train_round/train_split 로 기록')
+    e.add_argument('--drop-classes', default=None, help='학습에서 뺄 클래스 이름 쉼표 목록 (기본: dataset.yaml dropped_names + cap; 빈 문자열이면 안 뺌)')
     s = sub.add_parser('stats', help='검수 현황')
     s.add_argument('dataset')
     pp = sub.add_parser('propagate', help='대표(★) 라벨을 같은 제품의 보류 이미지로 SAM2 전파 → labels_auto/')
@@ -94,7 +95,8 @@ def _cli(argv):
     from .export import export_dataset
     r = export_dataset(ds, a.out, statuses=tuple(a.status.split(',')), val_ratio=a.val, seed=a.seed,
                        copy_mode=a.mode, eps=a.eps, min_area=a.min_area,
-                       progress=lambda i, n, st: print(f'\r{i + 1}/{n}', end='', flush=True), keep_excluded=a.keep_excluded, round_name=a.round)
+                       progress=lambda i, n, st: print(f'\r{i + 1}/{n}', end='', flush=True), keep_excluded=a.keep_excluded, round_name=a.round,
+                       drop_classes=None if a.drop_classes is None else [c for c in a.drop_classes.split(',') if c])
     print()
     for k, v in r.items():
         print(f'{k}: {v}')
