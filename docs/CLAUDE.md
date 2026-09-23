@@ -22,3 +22,6 @@
 ## 테스트
 - `tests/test_gui_smoke.py` 는 `MR_TEST_DS` 로 준 데이터셋을 임시 폴더에 복사해 돈다. 풀셋(2,400장)은 크므로 manifest 에서 제품 2종 6장씩 뽑은 축소본을 스크래치에 만들어 쓴다.
 - 스모크의 꼭짓점 삽입·내보내기(확정 1장) 검사는 데이터셋 내용에 따라 실패할 수 있다. 실패가 변경과 무관한지는 변경 전 코드로 같은 축소본을 돌려 비교한다.
+
+## 학습 규칙 (2026-09-23)
+- YOLO 학습(train_codes.py·train_round.py·exp 스크립트·auto_retrain)은 **강건성 증강을 기본으로 포함**한다: hsv_h 0.03, hsv_s 0.8, hsv_v 0.6, 회전 ±10°, 이동 0.15, 스케일 0.7, copy_paste 0.1, bgr 0.05 + albumentations(Blur·MedianBlur·ToGray·CLAHE 자동). 사무실·현장처럼 조명과 벨트색이 다른 환경에서 마스크가 흔들리지 않게 하기 위함 (yolo_mask_reviewer 환경에 albumentations 설치됨). 12자리 코드 모델은 fliplr 0 유지, 5클래스 모델은 fliplr 0.5.

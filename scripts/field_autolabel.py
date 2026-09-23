@@ -65,7 +65,7 @@ CFG = dict(
     ref_state=E('AL_REF_STATE', f'{HOME}/jhw/data/SL_under_predict/review_state.json'),   # 검수 PC 의 실제 판정 (있으면 우선)
     exemplars=E('AL_EXEMPLARS', f'{HOME}/jhw/data/SL/exemplars'),
     collector=E('AL_COLLECTOR', f'{HOME}/jhw/SL_Inspection_Automation/core_utils/collect_yolo_hard_cases.py'),
-    field_model=E('AL_FIELD_MODEL', f'{HOME}/jhw/SL_Inspection_Automation/models/yolo11s_best_20260918.pt'),
+    field_model=E('AL_FIELD_MODEL', f'{HOME}/jhw/SL_Inspection_Automation/models/yolo26s_best_260923.pt'),   # 2026-09-23 현장 투입 모델(구멍 마스크)
     cand_model=E('AL_CAND_MODEL', f'{HOME}/jhw/data/SL/retrain/current.pt'
                  if os.path.lexists(f'{HOME}/jhw/data/SL/retrain/current.pt')
                  else f'{HOME}/jhw/data/SL/runs/round_20260919_b0918/weights/best.pt'),   # auto_retrain 이 승격한 최신 모델

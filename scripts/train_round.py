@@ -105,7 +105,9 @@ def main():
     base.train(data=merged_yaml, epochs=a.epochs, imgsz=a.imgsz, batch=a.batch, device=a.device,
                project=a.runs, name=name, exist_ok=True, freeze=a.freeze, lr0=a.lr0, workers=a.workers,
                patience=a.patience, pretrained=True, plots=True, verbose=False,
-               optimizer=a.optimizer, warmup_epochs=a.warmup_epochs, warmup_bias_lr=a.warmup_bias_lr)
+               optimizer=a.optimizer, warmup_epochs=a.warmup_epochs, warmup_bias_lr=a.warmup_bias_lr,
+               ## 강건성 기본 증강 (2026-09-23 jhw 규칙, docs/CLAUDE.md "학습 규칙") — 5클래스 대분류라 fliplr 은 기본(0.5) 유지
+               hsv_h=0.03, hsv_s=0.8, hsv_v=0.6, degrees=10.0, translate=0.15, scale=0.7, copy_paste=0.1, bgr=0.05)
     best = os.path.join(a.runs, name, 'weights', 'best.pt')
     if not os.path.exists(best):
         sys.exit('best.pt 가 만들어지지 않았습니다')

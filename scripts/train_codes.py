@@ -6,6 +6,7 @@
   DATA.yaml  train/val 이 목록이어도 된다 (record + field 합본). names 는 build_record_yolo.py 의 것.
   --base     시작 가중치. 기본은 운영 모델(도메인 적응된 백본). 클래스 수가 달라 ultralytics 가 헤드를 새로 만든다.
 train_round.py 와 달리 클래스 이름 일치 검사를 하지 않는다. fliplr=0 은 바꾸지 않는다.
+강건성 증강(hsv_h 0.03·hsv_s 0.8·hsv_v 0.6·회전 10°·이동 0.15·스케일 0.7·copy_paste 0.1·bgr 0.05, albumentations 블러/CLAHE)이 기본이다 (2026-09-23).
 결과: RUNS/<name>/weights/best.pt
 """
 import argparse
@@ -43,6 +44,8 @@ def main():
         optimizer=a.optimizer, lr0=a.lr0, cos_lr=True, warmup_epochs=1.0, warmup_bias_lr=0.0,
         freeze=a.freeze or None, patience=a.patience, close_mosaic=8,
         fliplr=0.0, flipud=0.0,  # LH/RH 는 거울상 → 반전 금지
+        ## 강건성 기본 증강 (2026-09-23 jhw 규칙): 조명·벨트색·자세 변화에 과적합하지 않도록 항상 포함
+        hsv_h=0.03, hsv_s=0.8, hsv_v=0.6, degrees=10.0, translate=0.15, scale=0.7, copy_paste=0.1, bgr=0.05,
         plots=True, verbose=True,
     )
 
