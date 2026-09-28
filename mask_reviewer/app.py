@@ -11,10 +11,10 @@ from PyQt5.QtGui import QColor, QIcon, QKeySequence, QPixmap
 from PyQt5.QtWidgets import (QAction, QActionGroup, QApplication, QCheckBox, QComboBox, QDialog,
                              QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout,
                              QGroupBox, QHBoxLayout, QLabel, QLineEdit, QListWidget, QListWidgetItem,
-                             QMainWindow, QMessageBox, QProgressDialog, QPushButton, QSlider, QSpinBox,
+                             QMainWindow, QMenu, QMessageBox, QProgressDialog, QPushButton, QSlider, QSpinBox,
                              QSplitter, QToolBar, QVBoxLayout, QWidget, QAbstractItemView)
 
-from . import maskops, propagate, sam2_helper
+from . import codeclass, maskops, propagate, sam2_helper
 from .canvas import TOOL_KEY, TOOL_LABEL, TOOLS, MaskCanvas, class_color
 from .dataset import LABEL_SOURCE_LABEL, STATUSES, STATUS_LABEL, STATUS_MARK, Dataset, Instance, is_full_code
 from .export import COPY_MODES, export_dataset
@@ -323,10 +323,19 @@ class MainWindow(QMainWindow):
                 ('선택 병합', self.merge_instances), ('조각 분리', self.split_instance),
                 ('자르기 (K)', lambda: self.set_tool('cut')), ('GrabCut 보정 (G)', self.grabcut),
                 ('구멍 채우기', self.fill_holes), ('최대 조각만', self.keep_largest),
-                ('가장자리 정리', self.smooth), ('원본 라벨 복원', self.revert)]
+                ('가장자리 정리', self.smooth), ('원본 라벨 복원', self.revert),
+                ('클래스 → 제품코드 (J)', lambda: self.code_class('to_code')),
+                ('제품코드 마스크만 (Q)', lambda: self.code_class('keep_code'))]
+        tips = {'클래스 → 제품코드 (J)': '모든 인스턴스의 클래스를 이 이미지의 제품코드 클래스로 바꾼다.\n'
+                                       '왼쪽 목록에서 여러 장을 선택했으면 선택 전부에 적용 (편집본으로 저장)',
+                '제품코드 마스크만 (Q)': '제품코드 클래스의 마스크가 있으면 그것만 남기고 나머지를 지운다.\n'
+                                      '없으면 화면 중앙의 마스크를 제품코드 클래스로 바꾸고 나머지를 지운다.\n'
+                                      '왼쪽 목록에서 여러 장을 선택했으면 선택 전부에 적용 (편집본으로 저장)'}
         for i, (t, fn) in enumerate(btns):
             b = QPushButton(t)
             b.clicked.connect(fn)
+            if t in tips:
+                b.setToolTip(tips[t])
             grid.addWidget(b, i // 2, i % 2)
         gl.addLayout(grid)
         rl.addWidget(ginst, 1)
@@ -416,6 +425,8 @@ class MainWindow(QMainWindow):
         act('GrabCut 보정', self.grabcut, 'G', em)
         act('현재 인스턴스 비우기', self.clear_instance, 'C', em)
         act('원본 라벨 복원', self.revert, None, em)
+        act('클래스 → 제품코드', lambda: self.code_class('to_code'), 'J', em)
+        act('제품코드 마스크만 남기기', lambda: self.code_class('keep_code'), 'Q', em)
         em.addSeparator()
         act('확정 + 다음', lambda: self.set_status('ok', True), 'Space', em)
         act('보류', lambda: self.set_status('pending', False), 'W', em)
@@ -568,6 +579,8 @@ class MainWindow(QMainWindow):
             m.addAction(f'{STATUS_MARK[st]} {STATUS_LABEL[st]}', lambda st=st: self.set_status(st))
         m.addSeparator()
         m.addAction('제품코드 변경…', self.edit_code)
+        for mode in codeclass.MODES:
+            m.addAction(codeclass.MODE_LABEL[mode], lambda mode=mode: self.code_class(mode))
         m.addAction('자동 라벨 삭제', self.clear_auto_current)
         m.addAction('★ 대표 해제', self.clear_exemplar_selected)
         m.exec_(self.list.viewport().mapToGlobal(pos))
@@ -1264,6 +1277,61 @@ class MainWindow(QMainWindow):
 
     def apply_class(self):
         self.set_class(self.cls_combo.currentData())
+
+    def code_class(self, mode):
+        """인스턴스 클래스를 이미지의 제품코드에 맞춘다 (codeclass.MODES). 목록에서 여러 장을 선택했으면 일괄 적용."""
+        if self.ds is None or self.stem is None:
+            return
+        stems = self._selected_stems()
+        if len(stems) > 1:
+            what = (' 의 모든 인스턴스 클래스를 각 이미지의 제품코드로 바꿀까요?' if mode == 'to_code' else
+                    ' 에서 제품코드 클래스 마스크만 남길까요?\n(없으면 화면 중앙 마스크를 제품코드 클래스로 바꾸고 나머지 삭제)')
+            if self._confirm_bulk(codeclass.MODE_LABEL[mode], what + '\n결과는 편집본(labels_reviewed)으로 저장되며 되돌리기(Ctrl+Z)가 안 됩니다.', stems):
+                self.apply_code_class(mode, stems)
+            return
+        code = self.ds.code(self.stem)
+        cls = codeclass.class_id(self.ds, code)
+        if cls is None:
+            self.say(f'제품코드 {code or "(없음)"} 가 클래스 목록에 없습니다')
+            return
+        if not self.instances:
+            self.say('인스턴스가 없습니다')
+            return
+        keep = list(range(len(self.instances)))
+        if mode == 'keep_code':
+            keep = codeclass.plan_keep([i.cls for i in self.instances], [i.mask for i in self.instances], cls)
+        n_cls = sum(1 for i in keep if self.instances[i].cls != cls)
+        n_del = len(self.instances) - len(keep)
+        if not n_cls and not n_del:
+            self.say(f'{codeclass.MODE_LABEL[mode]}: 바꿀 것이 없습니다 ({cls}: {code})')
+            return
+        self.push_undo()
+        self.instances[:] = [self.instances[i] for i in keep]
+        for inst in self.instances:
+            inst.cls = cls
+        self.canvas.set_instances(self.instances, 0 if self.instances else -1)
+        self._on_edited()
+        self.say(f'{codeclass.MODE_LABEL[mode]}: {cls}: {code} — 클래스 변경 {n_cls}개, 삭제 {n_del}개')
+
+    def apply_code_class(self, mode, stems):
+        """stems 의 라벨에 mode 를 일괄 적용해 편집본으로 쓴다. codeclass.apply_bulk 의 결과를 돌려준다."""
+        self.save_current()
+        prog = QProgressDialog(codeclass.MODE_LABEL[mode] + '…', None, 0, len(stems), self)
+        prog.setWindowModality(Qt.WindowModal)
+        prog.setMinimumDuration(500)
+        r = codeclass.apply_bulk(self.ds, stems, mode, progress=lambda i, n, s: prog.setValue(i))
+        prog.setValue(len(stems))
+        if self.stem in r['changed']:             # 보고 있던 이미지는 새 편집본으로 다시 읽는다
+            cur, self.stem = self.stem, None
+            self.load_stem(cur)
+        self._after_bulk(stems)
+        msg = f'{codeclass.MODE_LABEL[mode]}: {len(r["changed"])}장 변경 · 그대로 {r["same"]} · 라벨 없음 {r["empty"]}'
+        if r['no_class']:
+            msg += f' · 클래스 목록에 없는 코드 {sum(r["no_class"].values())}장'
+            QMessageBox.information(self, codeclass.MODE_LABEL[mode], msg + '\n\n클래스 목록에 없어 건너뛴 제품코드:\n'
+                                    + ', '.join(f'{c or "(없음)"} {n}장' for c, n in sorted(r['no_class'].items())))
+        self.say(msg)
+        return r
 
     def new_instance(self):
         if self.img is None:

@@ -85,6 +85,7 @@ ssh HOST "sed -i 's|^path: .*|path: /받는/PC/절대경로/DST_DIR|' DST_DIR/da
 
 ```bash
 MR_TEST_DS=/path/to/small_dataset python3 tests/test_maskops.py        # 왕복 IoU·편집 연산·내보내기
+python3 tests/test_codeclass.py                                          # 클래스 → 제품코드 / 제품코드 마스크만 (데이터셋 불필요)
 QT_QPA_PLATFORM=offscreen MR_TEST_DS=... python3 tests/test_gui_smoke.py [스크린샷 폴더]
 ```
 GUI 스모크는 꼭짓점 편집·썸네일·대표 지정까지 확인하고, torch/sam2 와 체크포인트가 있으면 SAM2 추론과 대표 전파도 돈다 (없으면 건너뜀).
