@@ -37,6 +37,9 @@ def test_convert_text():
     assert codeclass.convert_text(text, 9, 'keep_code') == box(9, *CENTER) + '\n'
     assert codeclass.convert_text(box(3, *CORNER) + '\n', 9, 'keep_code') == box(9, *CORNER) + '\n'
     assert codeclass.convert_text('', 9, 'keep_code') == ''
+    # 최대 마스크만: 클래스는 그대로
+    assert codeclass.convert_text(text, None, 'keep_largest') == box(7, *CENTER) + '\n'
+    assert codeclass.convert_text('', None, 'keep_largest') == ''
 
 
 def test_apply_bulk():
@@ -67,6 +70,11 @@ def test_apply_bulk():
         ds.revert(b)
         r = codeclass.apply_bulk(ds, [b], 'to_code')
         assert r['changed'] == [b] and ds.label_text(b) == box(0, *CENTER) + '\n' + box(0, *CORNER) + '\n'
+        for s in (a, b):
+            ds.revert(s)
+        r = codeclass.apply_bulk(ds, ds.stems, 'keep_largest')               # 제품코드가 클래스 목록에 없어도 적용
+        assert r['changed'] == [a, b] and r['same'] == 2 and r['empty'] == 1 and not r['no_class']
+        assert ds.label_text(a) == box(1, *CENTER) + '\n' and ds.label_text(b) == box(1, *CENTER) + '\n'
     finally:
         shutil.rmtree(root)
 

@@ -3,6 +3,7 @@
 제품코드 클래스 데이터셋(클래스 이름 = 12자리 제품코드)에서 검수자가 이미지의 제품코드를 확정한 뒤 쓴다.
   to_code    모든 인스턴스의 클래스를 제품코드 클래스로 바꾼다
   keep_code  제품코드 클래스 마스크가 있으면 그것만, 없으면 화면 중앙의 마스크를 제품코드 클래스로 바꿔 하나만 남긴다
+  keep_largest  가장 넓은 마스크 하나만 남긴다 (클래스는 그대로, 제품코드와 무관)
 일괄 적용(apply_bulk)은 라벨 줄의 클래스 번호만 고쳐 labels_reviewed/ 에 쓰므로 폴리곤(구멍 포함)은 그대로다.
 """
 import os
@@ -11,8 +12,8 @@ import numpy as np
 
 from . import maskops
 
-MODES = ('to_code', 'keep_code')
-MODE_LABEL = {'to_code': '클래스 → 제품코드', 'keep_code': '제품코드 마스크만 남기기'}
+MODES = ('to_code', 'keep_code', 'keep_largest')
+MODE_LABEL = {'to_code': '클래스 → 제품코드', 'keep_code': '제품코드 마스크만 남기기', 'keep_largest': '최대 마스크만 남기기'}
 GRID = 256   # 일괄 적용에서 중앙 마스크를 고를 때 폴리곤을 채우는 격자 (이미지를 읽지 않는다)
 
 
@@ -57,8 +58,14 @@ def plan_keep(classes, masks, target):
     return [] if i is None else [i]
 
 
+def pick_largest(masks):
+    """가장 넓은 마스크의 번호 (같으면 앞의 것). 빈 마스크뿐이면 None."""
+    areas = [int(m.sum()) for m in masks]
+    return int(np.argmax(areas)) if areas and max(areas) > 0 else None
+
+
 def convert_text(text, target, mode):
-    """라벨 텍스트에 mode 를 적용한 텍스트. 인스턴스가 아닌 줄(값 7개 미만)은 버린다."""
+    """라벨 텍스트에 mode 를 적용한 텍스트. 인스턴스가 아닌 줄(값 7개 미만)은 버린다. keep_largest 는 target 을 쓰지 않는다."""
     rows = []
     for line in text.splitlines():
         r = maskops.parse_yolo_line(line, GRID, GRID)
@@ -67,6 +74,10 @@ def convert_text(text, target, mode):
     if mode == 'keep_code':
         masks = [maskops.polygon_to_mask(pts, GRID, GRID) for _, _, pts in rows]
         rows = [rows[i] for i in plan_keep([c for c, _, _ in rows], masks, target)]
+    elif mode == 'keep_largest':
+        i = pick_largest([maskops.polygon_to_mask(pts, GRID, GRID) for _, _, pts in rows])
+        rows = [] if i is None else [rows[i]]
+        return ''.join(' '.join(v) + '\n' for _, v, _ in rows)
     lines = [' '.join([str(target)] + v[1:]) for _, v, _ in rows]
     return '\n'.join(lines) + ('\n' if lines else '')
 
@@ -82,7 +93,7 @@ def apply_bulk(ds, stems, mode, progress=None):
         code = ds.code(s)
         if code not in ids:
             ids[code] = class_id(ds, code)
-        if ids[code] is None:
+        if ids[code] is None and mode != 'keep_largest':
             r['no_class'][code] = r['no_class'].get(code, 0) + 1
             continue
         text = ds.label_text(s)

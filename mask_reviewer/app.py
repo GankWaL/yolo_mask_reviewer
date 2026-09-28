@@ -325,12 +325,15 @@ class MainWindow(QMainWindow):
                 ('구멍 채우기', self.fill_holes), ('최대 조각만', self.keep_largest),
                 ('가장자리 정리', self.smooth), ('원본 라벨 복원', self.revert),
                 ('클래스 → 제품코드 (J)', lambda: self.code_class('to_code')),
-                ('제품코드 마스크만 (Q)', lambda: self.code_class('keep_code'))]
+                ('제품코드 마스크만 (Q)', lambda: self.code_class('keep_code')),
+                ('최대 마스크만 (L)', lambda: self.code_class('keep_largest'))]
         tips = {'클래스 → 제품코드 (J)': '모든 인스턴스의 클래스를 이 이미지의 제품코드 클래스로 바꾼다.\n'
                                        '왼쪽 목록에서 여러 장을 선택했으면 선택 전부에 적용 (편집본으로 저장)',
                 '제품코드 마스크만 (Q)': '제품코드 클래스의 마스크가 있으면 그것만 남기고 나머지를 지운다.\n'
                                       '없으면 화면 중앙의 마스크를 제품코드 클래스로 바꾸고 나머지를 지운다.\n'
-                                      '왼쪽 목록에서 여러 장을 선택했으면 선택 전부에 적용 (편집본으로 저장)'}
+                                      '왼쪽 목록에서 여러 장을 선택했으면 선택 전부에 적용 (편집본으로 저장)',
+                '최대 마스크만 (L)': '가장 넓은 마스크 하나만 남기고 나머지 인스턴스를 지운다 (클래스는 그대로).\n'
+                                   '왼쪽 목록에서 여러 장을 선택했으면 선택 전부에 적용 (편집본으로 저장)'}
         for i, (t, fn) in enumerate(btns):
             b = QPushButton(t)
             b.clicked.connect(fn)
@@ -427,6 +430,7 @@ class MainWindow(QMainWindow):
         act('원본 라벨 복원', self.revert, None, em)
         act('클래스 → 제품코드', lambda: self.code_class('to_code'), 'J', em)
         act('제품코드 마스크만 남기기', lambda: self.code_class('keep_code'), 'Q', em)
+        act('최대 마스크만 남기기', lambda: self.code_class('keep_largest'), 'L', em)
         em.addSeparator()
         act('확정 + 다음', lambda: self.set_status('ok', True), 'Space', em)
         act('보류', lambda: self.set_status('pending', False), 'W', em)
@@ -1285,12 +1289,25 @@ class MainWindow(QMainWindow):
         stems = self._selected_stems()
         if len(stems) > 1:
             what = (' 의 모든 인스턴스 클래스를 각 이미지의 제품코드로 바꿀까요?' if mode == 'to_code' else
+                    ' 에서 가장 넓은 마스크만 남기고 나머지를 지울까요? (클래스는 그대로)' if mode == 'keep_largest' else
                     ' 에서 제품코드 클래스 마스크만 남길까요?\n(없으면 화면 중앙 마스크를 제품코드 클래스로 바꾸고 나머지 삭제)')
             if self._confirm_bulk(codeclass.MODE_LABEL[mode], what + '\n결과는 편집본(labels_reviewed)으로 저장되며 되돌리기(Ctrl+Z)가 안 됩니다.', stems):
                 self.apply_code_class(mode, stems)
             return
         code = self.ds.code(self.stem)
         cls = codeclass.class_id(self.ds, code)
+        if mode == 'keep_largest':
+            i = codeclass.pick_largest([x.mask for x in self.instances])
+            if i is None or len(self.instances) < 2:
+                self.say(f'{codeclass.MODE_LABEL[mode]}: 바꿀 것이 없습니다')
+                return
+            self.push_undo()
+            n_del = len(self.instances) - 1
+            self.instances[:] = [self.instances[i]]
+            self.canvas.set_instances(self.instances, 0)
+            self._on_edited()
+            self.say(f'{codeclass.MODE_LABEL[mode]}: {self.instances[0].area:,} px 남김, 삭제 {n_del}개')
+            return
         if cls is None:
             self.say(f'제품코드 {code or "(없음)"} 가 클래스 목록에 없습니다')
             return
