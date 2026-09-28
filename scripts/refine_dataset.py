@@ -27,7 +27,7 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mask_reviewer.dataset import Dataset  # noqa: E402
 
-DEFAULT_MODEL = os.path.expanduser('~/jhw/SL_Inspection_Automation/models/yolo11s_best_20260919.pt')
+DEFAULT_MODEL = os.path.expanduser('~/jhw/SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt')
 
 
 def main():

@@ -113,7 +113,7 @@ def gate_map(model, yaml_path, a):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--base', default=os.path.expanduser('~/jhw/SL_Inspection_Automation/models/yolo11s_best_20260326.pt'))
+    ap.add_argument('--base', default=os.path.expanduser('~/jhw/SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt'))
     ap.add_argument('--new', action='append', default=[], help='name=path.pt (여러 번)')
     ap.add_argument('--gate', required=True, help='rehearsal/gate 폴더 (images/)')
     ap.add_argument('--reviewed', required=True, help='검수 데이터셋 폴더 (dataset.yaml, images/val, labels/val)')

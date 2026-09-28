@@ -10,7 +10,7 @@
 흐름:
   1. 스냅샷  field_autolabel 의 export(`SL_under_predict_auto_yolo`)를 autolabel 잠금 아래 하드링크 복사 (학습 중 덮어쓰기 방지).
              stem 목록 해시가 직전 학습과 같으면 건너뜀.
-  2. 학습    train_round.py: 검수 확정(REV) + 리허설(18일·신규 제품) + 스냅샷, base = current.pt (처음엔 round_20260919_b0918),
+  2. 학습    train_round.py: 검수 확정(REV) + 리허설(18일·신규 제품) + 스냅샷, base = current.pt (처음엔 models/yolo26s_best_20260929_aug.pt),
              freeze 0 · AdamW lr0 1e-4 · 15 epoch (§21-bx 채택 설정). 결과 runs/auto_<TAG>/.
   3. 게이트  eval_gates.py (base = current.pt 대비): ① 18일 게이트셋 보존 top-1 IoU≥0.95 비율, ② 19일 신규 val 87장(사람 라벨) 평균 IoU.
   4. 승격    ① ≥ GATE1_MIN 이고 ② 가 base 보다 GATE2_DROP 이상 나빠지지 않으면 current.pt → 새 best.pt (다음 재학습·field_autolabel 후보 모델이 됨).
@@ -43,7 +43,7 @@ CFG = dict(
     gate_reh=E('RT_GATE_REH', f'{HOME}/jhw/data/SL/rehearsal_20260918'),
     valnew=E('RT_VALNEW', f'{HOME}/jhw/data/SL/reviewed_20260919_valnew'),
     runs=E('RT_RUNS', f'{HOME}/jhw/data/SL/runs'),
-    init_base=E('RT_INIT_BASE', f'{HOME}/jhw/data/SL/runs/round_20260919_b0918/weights/best.pt'),
+    init_base=E('RT_INIT_BASE', f'{HOME}/jhw/SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt'),
     device=E('AL_DEVICE', '1'),   # PCI_BUS_ID 기준 1 = RTX 4070 Ti (2026-09-22)
     epochs=int(E('RT_EPOCHS', '15')), lr0=float(E('RT_LR0', '0.0001')), batch=int(E('RT_BATCH', '16')),
 )

@@ -6,7 +6,7 @@
 
   EXPORT_DIR   mask_reviewer 내보내기 폴더 (dataset.yaml 포함). val 비율 0 으로 내보냈으면 train=val 로 학습한다
                (과적합 감시 불가 — 실제 라운드에서는 val 비율을 두고 내보낼 것).
-  --base       기준 가중치. 기본은 운영 코드가 쓰는 SL_Inspection_Automation/models/yolo11s_best_20260326.pt.
+  --base       기준 가중치. 기본은 운영 코드가 쓰는 SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt.
   --extra-data 원본 학습 데이터 등 함께 학습할 데이터셋 yaml (여러 개 가능). 검수분만으로 학습하면 다른 제품을 잊을 수
                있으므로 원본 학습셋이 있는 PC 에서는 반드시 같이 준다. 클래스 이름·순서가 기준 모델과 같아야 한다.
   --freeze     앞쪽 N 개 레이어 동결 (기본 10 = 백본). 적은 데이터로 잊음을 줄인다.
@@ -24,7 +24,7 @@ import sys
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DEFAULT_BASE = os.path.expanduser('~/SL_Inspection_Automation/models/yolo11s_best_20260326.pt')
+DEFAULT_BASE = os.path.expanduser('~/jhw/SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt')
 
 
 def load_yaml(p):

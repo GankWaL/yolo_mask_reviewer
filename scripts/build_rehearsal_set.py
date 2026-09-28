@@ -27,7 +27,7 @@ import cv2
 import numpy as np
 import yaml
 
-DEFAULT_BASE = os.path.expanduser('~/jhw/SL_Inspection_Automation/models/yolo11s_best_20260326.pt')
+DEFAULT_BASE = os.path.expanduser('~/jhw/SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt')
 DEFAULT_EXCLUDE = '10E212,10J212,10M142,20P071,10T031,10T032,20Q021,20Q022,20Y041,10Q051'
 LARGE_SORT = {'SCALP': 'scalp', 'H/CVR': 'h_cvr', 'B/CVR': 'b_cvr', 'HSG': 'hsg', 'CAP': 'cap'}
 

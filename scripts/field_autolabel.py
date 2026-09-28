@@ -65,10 +65,10 @@ CFG = dict(
     ref_state=E('AL_REF_STATE', f'{HOME}/jhw/data/SL_under_predict/review_state.json'),   # 검수 PC 의 실제 판정 (있으면 우선)
     exemplars=E('AL_EXEMPLARS', f'{HOME}/jhw/data/SL/exemplars'),
     collector=E('AL_COLLECTOR', f'{HOME}/jhw/SL_Inspection_Automation/core_utils/collect_yolo_hard_cases.py'),
-    field_model=E('AL_FIELD_MODEL', f'{HOME}/jhw/SL_Inspection_Automation/models/yolo26s_best_20260923.pt'),   # 2026-09-23 현장 투입 모델(구멍 마스크, 09-23 저장소 이름 20260923 으로 변경)
+    field_model=E('AL_FIELD_MODEL', f'{HOME}/jhw/SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt'),   # 2026-09-29 r3 + field_new 합본 증강 학습 모델 (옛 모델은 용량 문제로 삭제)
     cand_model=E('AL_CAND_MODEL', f'{HOME}/jhw/data/SL/retrain/current.pt'
                  if os.path.lexists(f'{HOME}/jhw/data/SL/retrain/current.pt')
-                 else f'{HOME}/jhw/data/SL/runs/round_20260919_b0918/weights/best.pt'),   # auto_retrain 이 승격한 최신 모델
+                 else f'{HOME}/jhw/SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt'),   # auto_retrain 이 승격한 최신 모델
     sam_ckpt=E('AL_SAM_CKPT', f'{TOOL}/checkpoints/sam2.1_hiera_tiny.pt'),
     roi=E('AL_ROI', '605,190,685,685'),
     # 잘못 지정된 ★ (뒤집힌 제품 2, 캡 gate 프레임 2) — 검수 PC 에서 ★ 를 고치면 비운다

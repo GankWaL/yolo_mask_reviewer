@@ -13,7 +13,7 @@ import argparse
 import datetime as dt
 import os
 
-DEFAULT_BASE = os.path.expanduser('~/jhw/SL_Inspection_Automation/models/yolo11s_best_20260919.pt')
+DEFAULT_BASE = os.path.expanduser('~/jhw/SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt')
 
 
 def main():

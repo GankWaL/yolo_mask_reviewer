@@ -12,7 +12,7 @@ FIELD=${FIELD:-$DATA/field/20260918}
 REH=${REH:-$DATA/rehearsal_20260918}
 REV=${REV:-$DATA/reviewed_20260918}
 RUNS=${RUNS:-$DATA/runs}
-BASE=${BASE:-$HOME/jhw/SL_Inspection_Automation/models/yolo11s_best_20260326.pt}
+BASE=${BASE:-$HOME/jhw/SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt}
 TAG=${TAG:-$(date +%Y%m%d)}
 EPOCHS=${EPOCHS:-15}; LR=${LR:-0.0001}; DEV=${DEV:-0}; BATCH=${BATCH:-16}
 PER_CODE=${PER_CODE:-60}; GATE_PER_CODE=${GATE_PER_CODE:-15}

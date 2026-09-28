@@ -227,10 +227,10 @@ yolo segment val model=<모델.pt> data=<valid_class<N>/dataset.yaml> split=val
 4. **내보내기** (Ctrl+E, 확정만, val 비율 0.1 이상) → **재학습** (같은 환경, install.md §3):
    ```bash
    conda activate yolo_mask_reviewer
-   python scripts/train_round.py OUT_DIR                       # 기준: SL_Inspection_Automation/models/yolo11s_best_20260326.pt
+   python scripts/train_round.py OUT_DIR                       # 기준: SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt
    python scripts/train_round.py OUT_DIR --extra-data /path/원본학습셋/data.yaml --epochs 30   # 원본 학습셋과 함께 (권장)
    ```
-   결과는 `runs/round_<일시>/yolo11s_best_20260326_round_<날짜>.pt`. 검수분만으로 학습하면 다른 제품을 잊을 수 있어
+   결과는 `runs/round_<일시>/<기준 모델 이름>_round_<날짜>.pt`. 검수분만으로 학습하면 다른 제품을 잊을 수 있어
    백본 10개 층을 동결하고 lr 을 낮춰 두었지만, 원본 학습셋이 있는 PC 에서는 `--extra-data` 로 함께 학습한다.
    클래스 이름·순서가 기준 모델(b_cvr, cap, h_cvr, hsg, scalp)과 다르면 중단한다.
 5. **재추론** — 새 모델로 아직 보류인 이미지의 자동 라벨을 갱신하고 3 으로 돌아간다:
@@ -258,7 +258,7 @@ OUT/
 
 ## 원본 학습셋이 없을 때 — 의사 라벨 리허설 + 보수적 파인튜닝 (B+C, 2026-09-18)
 
-`yolo11s_best_20260326.pt` 의 원본 학습셋(`large_sort_seg.yaml`)이 없으면 검수분만으로 학습했을 때 다른 제품·클래스를 잊는다.
+운영 모델(당시 `yolo11s_best_20260326.pt`, 2026-09-29 삭제)의 원본 학습셋(`large_sort_seg.yaml`)이 없으면 검수분만으로 학습했을 때 다른 제품·클래스를 잊는다.
 대신 현장 성공 프레임을 기준 모델로 의사 라벨링해 "지금 잘하는 것" 을 함께 학습시키고(자기 증류), 게이트로 잊음을 잰다.
 
 ```bash
@@ -349,7 +349,7 @@ python scripts/auto_retrain.py --status    # current.pt 와 이력
 
 1. **스냅샷** — `SL_under_predict_auto_yolo/` 를 field_autolabel 잠금(flock) 아래 하드링크 복사해 학습 중 덮어쓰기를 막는다. stem 목록 해시가 직전과 같으면 건너뜀.
 2. **학습** — `train_round.py`: 검수 확정 `SL_under_predict_yolo1` + 리허설(18일·신규 제품) + 스냅샷, base = `~/jhw/data/SL/retrain/current.pt`
-   (처음엔 `runs/round_20260919_b0918`), freeze 0 · AdamW lr0 1e-4 · 15 epoch. 결과 `runs/auto_<TAG>/`.
+   (처음엔 `models/yolo26s_best_20260929_aug.pt`), freeze 0 · AdamW lr0 1e-4 · 15 epoch. 결과 `runs/auto_<TAG>/`.
 3. **게이트** — `eval_gates.py` base = current.pt 대비: ① 18일 게이트셋 보존(top-1 IoU≥0.95 비율) ≥ 0.90, ② 19일 신규 val 87장 평균 IoU 가 base 보다 0.01 이상 안 떨어짐.
 4. **승격** — 통과하면 `current.pt` 심볼릭링크를 새 best.pt 로 바꾼다. 다음 재학습의 base 이자 field_autolabel 의 후보 YOLO(`AL_CAND_MODEL` 기본)가 된다.
    실패하면 유지. **현장 적용(models/ 등록, main() 교체)은 자동으로 하지 않는다** — `retrain/history.csv` 와 `gate_<TAG>.md` 를 보고 사람이 결정.
