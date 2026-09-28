@@ -180,6 +180,30 @@ python scripts/propagate_holes.py ~/jhw/data/SL/field_all_<날짜> --exemplars-f
 재초기화). SLIA 런타임(`yolo_seg_cls_map`)은 클래스 이름으로 동작해 4클래스 모델을 코드 수정 없이 쓴다. 현장 수집(`field_autolabel.py`)은 CAP
 프레임과 CAP 코드(newcodes)를 받지 않는다. 검수 데이터셋(`field_data_hole_all_20260921` 등)의 names 는 손대지 않는다(검수 중 id 변경 방지).
 
+### 제품코드 내보내기 → 대분류 5클래스 (`scripts/codes_to_sort5.py`, 2026-09-28)
+
+제품코드 클래스 데이터셋(field_new_* 등)의 내보내기 폴더를 대분류 5클래스(b_cvr, cap, h_cvr, hsg, scalp) 폴더로 바꾼다. 프레임은 같고(하드링크)
+라벨 첫 열만 그 프레임 코드(export_manifest.csv)의 대분류 id 로 바뀐다. 대분류는 obj 이름에서 얻는다 (`--map-codes` 와 같은 표).
+제품코드 클래스 학습 폴더는 이 5클래스 폴더를 `remap_field_codes.py --names <코드 목록>` 에 주어 만든다.
+
+```bash
+python -m mask_reviewer export DATASET OUT_codes --status ok --val 0.1 --mode hardlink --round <라운드>
+python scripts/codes_to_sort5.py OUT_codes OUT_sort5
+python scripts/remap_field_codes.py --names CODES.yaml --out OUT_merged <기존 5클래스 내보내기> OUT_sort5
+```
+
+### 고정 검증용 데이터셋 (`scripts/build_valid_set.py`, 2026-09-28)
+
+제품코드(클래스)마다 확정 프레임 1\~5장을 모아 `valid_class<N>/`(N = 모인 제품코드 수)을 만든다. ★ 대표를 먼저 넣고, 남는 자리는
+학습에 안 쓴 프레임(val 분할 → 정제 제외) → 학습에 쓴 프레임 순으로 채운다 (seed 고정). 정제 제외 프레임도 쓴다.
+같은 프레임으로 제품코드 클래스(`valid_class<N>/dataset.yaml`)와 대분류 5클래스(`valid_class<N>/sort5/dataset.yaml`) 두 벌이 나온다.
+`manifest.csv` 의 `pick`·`train_split` 으로 어떤 프레임이 학습에 쓰였는지 볼 수 있다. 한 제품에 대표가 5장보다 많으면 5장만 들어간다.
+
+```bash
+python scripts/build_valid_set.py --names CODES.yaml --out-root ~/jhw/data/SL/yolo26_dataset DATASET [DATASET ...]
+yolo segment val model=<모델.pt> data=<valid_class<N>/dataset.yaml> split=val
+```
+
 ## 순환 라벨링 (대표 1장 → 자동 라벨 → 검수 → 재학습)
 
 제품마다 잘 맞는 라벨 한 장만 사람이 만들고, 나머지는 자동으로 채운 뒤 검수만 하는 흐름이다.
