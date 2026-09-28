@@ -255,6 +255,25 @@ def run(ds_src, shot_dir=None):
         assert sorted(w._selected_stems()) == sorted(stems_sel), '일괄 변경 뒤 선택 유지 실패'
         assert not w.apply_code(other, stems_sel)                       # 전부 같은 값이면 변화 없음
         assert w.apply_code(None, stems_sel) and all(not w.ds.state.code(t) for t in stems_sel)   # 각자 원본으로
+        # 일괄 판정·자동 라벨 삭제·대표 해제: 같은 선택에 한 번에 적용, 선택 유지
+        from PyQt5.QtWidgets import QMessageBox
+        prev_st = {t: w.ds.state.status(t) for t in stems_sel}
+        ask, cur = QMessageBox.question, w.stem                        # Shift+클릭한 행이 현재 이미지
+        QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.No)
+        w.set_status('reject', advance=True)
+        assert {t: w.ds.state.status(t) for t in stems_sel} == prev_st and w.stem == cur, '취소했는데 판정이 바뀜'
+        QMessageBox.question = staticmethod(lambda *a, **k: QMessageBox.Yes)
+        w.set_status('reject', advance=True)
+        assert all(w.ds.state.status(t) == 'reject' for t in stems_sel) and w.stem == cur      # 다음으로 넘어가지 않음
+        assert sorted(w._selected_stems()) == sorted(stems_sel), '일괄 판정 뒤 선택 유지 실패'
+        assert w.apply_status('reject', stems_sel) == 0                 # 전부 같은 값이면 변화 없음
+        for st_ in set(prev_st.values()):
+            w.apply_status(st_, [t for t in stems_sel if prev_st[t] == st_])
+        assert {t: w.ds.state.status(t) for t in stems_sel} == prev_st
+        w._select_stems(stems_sel)
+        w.clear_exemplar_selected()                                     # 대표가 없으면 아무 일도 없음
+        assert sorted(w._selected_stems()) == sorted(stems_sel)
+        QMessageBox.question = ask
         w.list.clearSelection()
         goto(tgt)
         assert len(w.instances) >= 1 and '자동' in w.info.text()

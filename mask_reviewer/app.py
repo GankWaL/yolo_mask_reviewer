@@ -1,5 +1,6 @@
 """YOLO-seg 마스크 검수 GUI 메인 윈도우."""
 import os
+import time
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 
@@ -243,8 +244,11 @@ class MainWindow(QMainWindow):
         sr.addWidget(self.sort_combo)
         ll.addLayout(sr)
         self.list = QListWidget()
-        self.list.setSelectionMode(QAbstractItemView.ExtendedSelection)   # 드래그·Shift/Ctrl+클릭 다중 선택 → 제품코드 일괄 변경
-        self.list.setToolTip('드래그·Shift/Ctrl+클릭으로 여러 장을 고르면 [제품코드 변경…] 이 선택 전부에 적용된다')
+        self.list.setSelectionMode(QAbstractItemView.ExtendedSelection)   # 드래그·Shift/Ctrl+클릭 다중 선택 → 판정·제품코드 등 일괄 적용
+        self.list.setToolTip('드래그·Shift/Ctrl+클릭으로 여러 장을 고르면 확정(Space)·보류(W)·제외(X)·[제품코드 변경…]·'
+                             '자동 라벨 삭제·대표 해제가 선택 전부에 적용된다 (우클릭 메뉴)')
+        self.list.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.list.customContextMenuRequested.connect(self._list_menu)
         self.list.setIconSize(QSize(THUMB_PX, THUMB_PX))
         self.list.setUniformItemSizes(True)   # 모든 행을 같은 높이로 (썸네일이 늦게 와도 행이 안 흔들림)
         self.list.currentItemChanged.connect(self._on_list_changed)
@@ -419,7 +423,7 @@ class MainWindow(QMainWindow):
         act('대표 지정/해제', self.toggle_exemplar, 'R', em)
         am = mb.addMenu('자동')
         act('SAM2 대표 전파…', self.run_propagate, 'Ctrl+P', am)
-        act('현재 이미지 자동 라벨 삭제', self.clear_auto_current, None, am)
+        act('현재(선택) 이미지 자동 라벨 삭제', self.clear_auto_current, None, am)
         am.addSeparator()
         act('SAM2 체크포인트 선택…', self.choose_sam_checkpoint, None, am)
         act('이전 이미지', lambda: self.navigate(-1), 'A', vm)
@@ -551,6 +555,33 @@ class MainWindow(QMainWindow):
             if it.data(Qt.UserRole) in want:
                 it.setSelected(True)
         self.list.blockSignals(False)
+
+    def _list_menu(self, pos):
+        """이미지 목록 우클릭 메뉴: 선택된 이미지(없으면 현재 이미지)에 일괄 적용."""
+        if self.ds is None or self.stem is None or self.list.itemAt(pos) is None:
+            return
+        n = len(self._selected_stems())
+        m = QMenu(self)
+        m.addAction(f'선택 {n}장').setEnabled(False)
+        m.addSeparator()
+        for st in ('ok', 'pending', 'reject'):
+            m.addAction(f'{STATUS_MARK[st]} {STATUS_LABEL[st]}', lambda st=st: self.set_status(st))
+        m.addSeparator()
+        m.addAction('제품코드 변경…', self.edit_code)
+        m.addAction('자동 라벨 삭제', self.clear_auto_current)
+        m.addAction('★ 대표 해제', self.clear_exemplar_selected)
+        m.exec_(self.list.viewport().mapToGlobal(pos))
+
+    def _confirm_bulk(self, title, what, stems):
+        return QMessageBox.question(self, title, f'선택한 {len(stems)}장{what}\n({stems[0]} … {stems[-1]})') == QMessageBox.Yes
+
+    def _after_bulk(self, stems):
+        """일괄 적용 뒤 목록·정보를 갱신하고 선택을 되살린다 (필터에서 빠진 이미지는 목록에서 사라진다)."""
+        self._refresh_code_filter()
+        self.refresh_list()
+        self._select_stems(stems)
+        if self.stem is not None:
+            self._refresh_info()
 
     def edit_code(self):
         """선택된 이미지(없으면 현재 이미지)의 제품코드를 고친다: 데이터셋에 있는 12자리 코드 선택 또는 직접 입력."""
@@ -927,6 +958,13 @@ class MainWindow(QMainWindow):
     def set_status(self, status, advance=False):
         if self.ds is None or self.stem is None:
             return
+        stems = self._selected_stems()
+        if len(stems) > 1:                      # 목록에서 여러 장 선택 → 일괄 판정 (다음으로 넘어가지 않음)
+            if self._confirm_bulk('일괄 판정', f'을 "{STATUS_LABEL[status]}" 으로 바꿀까요?', stems):
+                self.apply_status(status, stems)
+            else:
+                self._refresh_info()            # 눌린 판정 버튼을 원래대로
+            return
         self.save_current()
         self.ds.state.set(self.stem, status=status)
         self._refresh_item(self.stem)
@@ -935,6 +973,37 @@ class MainWindow(QMainWindow):
         self.say(f'{self.stem}: {STATUS_LABEL[status]}')
         if advance:
             self.navigate(1)
+
+    def apply_status(self, status, stems):
+        """stems 의 판정을 한 번에 status 로. 바뀐 장수를 돌려준다."""
+        self.save_current()
+        stems = [t for t in stems if self.ds.state.status(t) != status]
+        now = time.strftime('%Y-%m-%d %H:%M:%S')
+        for t in stems:
+            self.ds.state.data.setdefault(t, {}).update(status=status, updated=now)
+        if stems:
+            self.ds.state.save()                # 장마다 저장하지 않고 한 번만
+        self._after_bulk(self._selected_stems())
+        self.say(f'일괄 판정: {STATUS_LABEL[status]} ({len(stems)}장 변경)')
+        return len(stems)
+
+    def clear_exemplar_selected(self):
+        """선택된 이미지(없으면 현재 이미지)의 ★ 대표를 해제한다. 지정은 라벨 확인이 필요해 한 장씩(R)."""
+        if self.ds is None or self.stem is None:
+            return
+        sel = self._selected_stems()
+        stems = [t for t in sel if self.ds.state.exemplar(t)]
+        if not stems:
+            self.say('선택에 대표가 없습니다')
+            return
+        if len(sel) > 1 and not self._confirm_bulk('대표 해제', f' 중 대표 {len(stems)}장을 해제할까요?', sel):
+            return
+        now = time.strftime('%Y-%m-%d %H:%M:%S')
+        for t in stems:
+            self.ds.state.data.setdefault(t, {}).update(exemplar=False, updated=now)
+        self.ds.state.save()
+        self._after_bulk(sel)
+        self.say(f'대표 해제 {len(stems)}장')
 
     def navigate(self, delta):
         if self.list.count() == 0:
@@ -1047,7 +1116,17 @@ class MainWindow(QMainWindow):
         w.start()
 
     def clear_auto_current(self):
-        if self.ds is None or self.stem is None or not self.ds.has_auto(self.stem):
+        if self.ds is None or self.stem is None:
+            return
+        sel = self._selected_stems()
+        if len(sel) > 1:                        # 목록에서 여러 장 선택 → 일괄 삭제
+            stems = [t for t in sel if self.ds.has_auto(t)]
+            if not stems:
+                self.say('선택에 자동 라벨이 없습니다')
+            elif self._confirm_bulk('자동 라벨 삭제', f' 중 자동 라벨 {len(stems)}장을 지울까요? (되돌릴 수 없음)', sel):
+                self.clear_auto(stems)
+            return
+        if not self.ds.has_auto(self.stem):
             self.say('자동 라벨이 없습니다')
             return
         self.ds.clear_auto(self.stem)
@@ -1057,6 +1136,19 @@ class MainWindow(QMainWindow):
         self.load_stem(s)
         self._refresh_item(s)
         self.say('자동 라벨 삭제 → 원본 라벨 표시')
+
+    def clear_auto(self, stems):
+        """stems 의 자동 라벨을 한 번에 지운다. 지운 장수를 돌려준다."""
+        self.save_current()
+        stems = [t for t in stems if self.ds.has_auto(t)]
+        for t in stems:
+            self.ds.clear_auto(t)
+        if self.stem in stems:                  # 보고 있던 이미지는 원본 라벨로 다시 읽는다
+            cur, self.stem = self.stem, None
+            self.load_stem(cur)
+        self._after_bulk(self._selected_stems())
+        self.say(f'자동 라벨 삭제 {len(stems)}장 → 원본 라벨 표시')
+        return len(stems)
 
     def closeEvent(self, e):
         if self._prop_worker is not None:
