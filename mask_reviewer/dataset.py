@@ -1,5 +1,8 @@
 """데이터셋 폴더(images/ labels/ manifest.csv dataset.yaml) 읽기와 검수 상태 저장.
 
+images/ 바로 아래에 이미지가 없고 images/<split>/ (train, val …) 만 있는 YOLO 학습 폴더도 연다 — 원본 라벨은 labels/<split>/ 에서 읽고
+편집본·자동 라벨·검수 상태는 똑같이 데이터셋 루트에 쓴다 (stem 은 split 을 통틀어 하나여야 하며 겹치면 앞 split 것만 쓴다).
+
 원본 `labels/` 는 건드리지 않는다. 라벨 층은 우선순위 순으로
   labels_reviewed/<stem>.txt   사람이 고친 편집본
   labels_auto/<stem>.txt       자동 라벨 (SAM2 대표 전파, 재학습 모델 재추론)
@@ -153,10 +156,21 @@ class Dataset:
         if not os.path.isdir(self.images_dir):
             raise FileNotFoundError(f'images/ 폴더가 없습니다: {self.root}')
         self._img_path = {}
+        self._split = {}   # stem -> split 폴더 이름 (images/<split>/ 구조일 때만)
         for fn in sorted(os.listdir(self.images_dir)):
             stem, ext = os.path.splitext(fn)
             if ext.lower() in IMG_EXTS and stem not in self._img_path:
                 self._img_path[stem] = os.path.join(self.images_dir, fn)
+        if not self._img_path:
+            for sp in sorted(os.listdir(self.images_dir)):
+                d = os.path.join(self.images_dir, sp)
+                if not os.path.isdir(d):
+                    continue
+                for fn in sorted(os.listdir(d)):
+                    stem, ext = os.path.splitext(fn)
+                    if ext.lower() in IMG_EXTS and stem not in self._img_path:
+                        self._img_path[stem] = os.path.join(d, fn)
+                        self._split[stem] = sp
         self.stems = sorted(self._img_path)
         self.manifest = load_manifest(self.root)
         self.names = load_names(self.root)
@@ -194,8 +208,12 @@ class Dataset:
         return self._img_path[stem]
 
 
+    def split(self, stem):
+        """images/<split>/ 구조 데이터셋에서 그 이미지의 split 이름 (평면 구조면 '')."""
+        return self._split.get(stem, '')
+
     def original_label_path(self, stem):
-        return os.path.join(self.labels_dir, stem + '.txt')
+        return os.path.join(self.labels_dir, self._split.get(stem, ''), stem + '.txt')
 
     def reviewed_label_path(self, stem):
         return os.path.join(self.reviewed_dir, stem + '.txt')
@@ -344,6 +362,8 @@ class Dataset:
     def info(self, stem):
         r = dict(self.manifest.get(stem, {}))
         r['code'] = self.code(stem)
+        if self.split(stem):
+            r['split'] = self.split(stem)
         return r
 
     def codes(self):

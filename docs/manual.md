@@ -18,6 +18,10 @@ python3 -m mask_reviewer propagate DATASET [--codes A,B] [--max-exemplars 3]   #
 python3 -m mask_reviewer rescore DATASET   # 기존 자동 라벨의 원본 대비 변화량(diff) 소급 계산 (툴을 닫고 실행)
 ```
 
+YOLO 학습 폴더(`images/train`, `images/val` 처럼 split 폴더로 나뉜 것, 예 `yolo26_dataset/train_class139`·`valid_class145`)도 그대로 열 수 있다 (2026-09-29).
+원본 라벨은 `labels/<split>/` 에서 읽고, 고치면 편집본은 데이터셋 루트의 `labels_reviewed/` 에 저장된다 (학습 폴더의 라벨은 바뀌지 않는다).
+오른쪽 정보에 그 이미지의 분할(train/val)이 보인다.
+
 ## 화면
 
 - 왼쪽: 이미지 목록(썸네일). 제품코드·판정 상태(보류/확정/제외/편집됨/자동 라벨/대표/정제 제외/최근 학습에 사용됨/학습 모델 자동 라벨)·파일명으로 필터. **제품의 ★ 대표: 있음/없음** 체크박스는 같은 12자리 제품코드(재지정 코드 기준)에 ★ 대표가 있는/없는 이미지만 보여 주고, 제품 콤보에는 코드마다 대표 수(★n, 없으면 —)와 요약(대표 있는 제품 a/b)이 표시된다. 오른쪽 정보에도 그 제품의 대표 장수가 보인다.

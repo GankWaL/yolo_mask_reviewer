@@ -912,6 +912,8 @@ class MainWindow(QMainWindow):
             lines.append(f'<span style="color:#080">학습 사용: {self.ds.state.get(s).get("train_round")} ({self.ds.state.get(s).get("train_split", "")})</span>')
         if self.ds.state.get(s).get('train_exclude'):
             lines.append(f'<span style="color:#c00">정제 제외(학습 미사용): {self.ds.state.get(s).get("refine_reasons", "")}</span>')
+        if self.ds.split(s):
+            lines.append(f'분할 <b>{self.ds.split(s)}</b>')
         if r.get('source'):
             lines.append(f'<span style="color:#777">{r["source"]}</span>')
         self.info.setText('<br>'.join(lines))
