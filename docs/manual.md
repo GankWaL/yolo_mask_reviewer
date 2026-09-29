@@ -216,7 +216,7 @@ yolo segment val model=<모델.pt> data=<valid_class<N>/dataset.yaml> split=val
 
 ```bash
 python scripts/update_valid_set.py VALID --review <검수한 학습 폴더> --map <검증 태그>=<학습 태그> ... --out-root ~/jhw/data/SL/yolo26_dataset
-python scripts/eval_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class145 <모델.pt> [<모델.pt> ...]   # 마스크 mAP·P/R, top-1, 미검출, ms
+python scripts/eval_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class143 <모델.pt> [<모델.pt> ...]   # 마스크 mAP·P/R, top-1, 미검출, ms
 ```
 
 `eval_valid.py` 는 모델 클래스 수로 5클래스(`sort5/`)·제품코드 폴더를 고르고, 클래스 목록이 다른 옛 모델도 이름으로 맞춰 평가한다.
