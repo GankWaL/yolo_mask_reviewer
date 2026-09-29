@@ -208,6 +208,22 @@ python scripts/build_valid_set.py --names CODES.yaml --out-root ~/jhw/data/SL/yo
 yolo segment val model=<모델.pt> data=<valid_class<N>/dataset.yaml> split=val
 ```
 
+### 제품코드별 장수 상한 (`scripts/cap_per_code.py`, 2026-09-29)
+
+클래스 균형을 위해 학습 폴더에서 제품코드마다 상한(기본 60장)까지만 남긴 새 폴더 `train_class<N>/` 을 만든다. 원본 폴더는 건드리지 않는다.
+
+- 검수 반영: 검수 툴로 학습 폴더를 열어 고친 것(제외·편집본·코드 재지정)을 먼저 반영한다. 제외 프레임은 빠진다.
+- 고르는 법: 상한을 train/val 비율대로 나누고(val 이 있으면 최소 1장), ★ 대표와 사람이 고친 프레임을 먼저 넣은 뒤 나머지는 물체 크롭의
+  DINOv2 임베딩을 남은 자리 수만큼 k-means 로 묶어 묶음마다 중심에 가장 가까운 한 장을 고른다. 비슷한 프레임이 몰린 곳은 줄고 드문 외형은 남는다.
+- ★ 대표는 `--exemplars <TAG>=<원본 검수 데이터셋>` 으로 원본의 `review_state.json` 에서 가져온다 (학습 폴더 stem 이 `<TAG>__<원본 stem>`).
+  결과 폴더의 `review_state.json` 에 대표·확정으로 적혀 검수 툴 목록의 ★ 와 `대표` 필터로 볼 수 있다.
+- 상한 이하인 코드는 전부 남긴다. `cap_report.csv` 에 전 프레임의 남김 여부와 사유(`exemplar`, `human`, `diverse`, `over_cap`, `under_cap`, `reject`)가 남는다.
+
+```bash
+python scripts/cap_per_code.py ~/jhw/data/SL/yolo26_dataset/train_class139 --out-root ~/jhw/data/SL/yolo26_dataset --cap 60 \
+    --exemplars field_new_export_20260928=~/jhw/data/SL/field_new_20260923 holes_all_export_r3=~/jhw/data/SL/field_data_hole_all_20260921
+```
+
 ## 순환 라벨링 (대표 1장 → 자동 라벨 → 검수 → 재학습)
 
 제품마다 잘 맞는 라벨 한 장만 사람이 만들고, 나머지는 자동으로 채운 뒤 검수만 하는 흐름이다.
