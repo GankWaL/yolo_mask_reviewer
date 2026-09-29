@@ -176,22 +176,32 @@ def is_cap_code(code):
         return False
 
 
+def known_frames(ds, root):
+    """기준 데이터셋 root 의 (stem, 유효 코드, 판정) 목록. images/ 가 없으면(2026-09-29 정리: 라벨·상태만 보관) manifest.csv 와
+    review_state.json 만으로 만든다 — 유효 코드 = state code > manifest code > 파일명. 읽을 수 없으면 None."""
+    from mask_reviewer.dataset import Dataset, ReviewState, STATE_FILE, code_from_stem, load_manifest
+    try:
+        if os.path.isdir(os.path.join(root, 'images')):
+            d = ds if os.path.abspath(root) == os.path.abspath(ds.root) else Dataset(root)
+            return [(s, d.code(s), d.state.status(s)) for s in d.stems]
+        man = load_manifest(root)
+        if not man:
+            return None
+        st = ReviewState(os.path.join(root, STATE_FILE))
+        return [(s, st.code(s) or r.get('code') or code_from_stem(s), st.status(s)) for s, r in sorted(man.items())]
+    except Exception as e:
+        log(f'기준 데이터셋 {root} 열기 실패 ({e})')
+        return None
+
+
 def code_counts(ds):
     """지금까지 모은 데이터셋(AL_KNOWN_DS)과 DS 자체의 12자리 코드별 프레임 수.
     재지정 코드 기준, reject 는 빼고, 데이터셋끼리 겹치는 stem 은 한 번만 센다."""
     from mask_reviewer.dataset import Dataset, is_full_code
     stems = collections.defaultdict(set)
     for root in CFG['known_ds'] + [ds.root]:
-        if not os.path.isdir(os.path.join(root, 'images')):
-            continue
-        try:
-            d = ds if os.path.abspath(root) == os.path.abspath(ds.root) else Dataset(root)
-        except Exception as e:
-            log(f'newcodes: {root} 열기 실패 ({e})')
-            continue
-        for s in d.stems:
-            c = d.code(s)
-            if is_full_code(c) and d.state.status(s) != 'reject':
+        for s, c, status in known_frames(ds, root) or []:
+            if is_full_code(c) and status != 'reject':
                 stems[c].add(s)
     return {c: len(v) for c, v in stems.items()}
 
@@ -207,21 +217,14 @@ def code_alias(ds, min_n=3, min_share=0.8):
     total = collections.Counter()
     seen = set()
     for root in CFG['known_ds']:          # 검수된 기준 데이터셋만 (DS 자체의 미검수 자동 수집분은 분모에 넣지 않는다)
-        if not os.path.isdir(os.path.join(root, 'images')):
-            continue
-        try:
-            d = ds if os.path.abspath(root) == os.path.abspath(ds.root) else Dataset(root)
-        except Exception:
-            continue
-        for s_ in d.stems:
-            if s_ in seen or d.state.status(s_) == 'reject':
+        for s_, new, status in known_frames(ds, root) or []:
+            if s_ in seen or status == 'reject':
                 continue
             seen.add(s_)
             orig = code_from_stem(s_)
             if not is_full_code(orig):
                 continue
             total[orig] += 1
-            new = d.code(s_)
             if is_full_code(new) and new != orig:
                 tally[orig][new] += 1
     alias = {}

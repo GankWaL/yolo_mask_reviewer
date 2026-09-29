@@ -7,7 +7,8 @@
 
 기본은 **배치만 동적**(입력 images: [N,3,640,640], 출력 [N,…]) 이고 높이·너비는 imgsz 로 고정한다 — 운영 입력이 640 고정이라
 런타임(onnxruntime/TensorRT)이 형상을 최적화하기 좋다. `--dynamic-hw` 면 ultralytics 기본처럼 N·H·W 모두 동적.
-yolo26 은 NMS 없는 end-to-end 모델이라 출력이 바로 최종 검출(seg: output0 [N, max_det, 4+1+1+32] 형식은 ultralytics 버전을 따른다)이다.
+출력 형식은 ultralytics 버전을 따른다. 8.4.157 의 yolo26s-seg 5클래스는 output0 [N, 4+클래스 5+마스크 계수 32=41, 8400](NMS 전 후보),
+output1 [N, 32, 160, 160](마스크 프로토타입) — 후처리(NMS·마스크 합성)는 런타임 쪽에서 한다.
 결과: 같은 폴더의 <이름>.onnx (+ 검증 요약 출력).
 """
 import argparse

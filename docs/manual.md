@@ -262,7 +262,7 @@ OUT/
 대신 현장 성공 프레임을 기준 모델로 의사 라벨링해 "지금 잘하는 것" 을 함께 학습시키고(자기 증류), 게이트로 잊음을 잰다.
 
 ```bash
-~/jhw/data/SL/fetch_field_data.sh 20260918          # 현장 PC 하루치 회수 (json → 로그 → raw → overlay, 재실행 시 이어받기)
+~/jhw/data/SL/scripts/fetch_field_data.sh 20260918          # 현장 PC 하루치 회수 (json → 로그 → raw → overlay, 재실행 시 이어받기)
 conda activate yolo_mask_reviewer
 python scripts/build_rehearsal_set.py ~/jhw/data/SL/field/20260918 --out ~/jhw/data/SL/rehearsal_20260918   # 리허설 + 게이트셋
 FIELD=... REH=... REV=~/jhw/data/SL/reviewed_20260918 TAG=20260918 scripts/round_bc.sh                          # 학습 2종 + 게이트
@@ -324,6 +324,7 @@ python scripts/field_autolabel.py run 20260919  # 날짜 지정 / fetch·collect
 라벨(대분류 = json `large_sort`)로 써서 DS 에 넣는다 (reason `newcode`, 보류, 메모 "★ 대표 필요"). 검수 PC 에서 이 프레임들로 ★ 대표를
 만들면 이후 전파에 쓰인다. 누적 수집 수는 `$AL_STATE/newcodes.json`(코드별 n·first·last).
 `python scripts/field_autolabel.py newcodes [날짜...]` 로 단독 실행할 수 있다.
+기준 데이터셋에 `images/` 가 없어도(2026-09-29 정리: 라벨·검수 상태만 보관) `manifest.csv` 와 `review_state.json` 만으로 센다.
 
 **원래 코드 → 재지정 코드 대응표(code_alias, 2026-09-23)**: 현장 json 의 코드가 틀린 제품(예 10K091 → 검수에서 10K081)은 현장에서
 계속 원래 코드로 나오므로, 검수된 기준 데이터셋(`AL_KNOWN_DS`)에서 사람이 바꾼 코드를 집계해 대응표를 만든다 — 원래 코드의 전체
