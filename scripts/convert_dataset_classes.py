@@ -20,7 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from mask_reviewer.dataset import Dataset, load_dataset_yaml  # noqa: E402
 
 
-DEFAULT_CODES_YAML = os.path.expanduser('~/jhw/data/SL/yolo26_dataset/codes_20260921/codes_nocap_20260923.yaml')
+DEFAULT_CODES_YAML = os.path.expanduser('~/jhw/data/SL/yolo26_dataset/codes_20260921/codes_none_20260929.yaml')
 
 
 def convert(dataset, names_yaml=DEFAULT_CODES_YAML, by_code=False):

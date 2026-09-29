@@ -5,8 +5,8 @@
   1. fetch     현장 PC save_pose_debug/<날짜>/ 에서 실패 프레임만 골라 회수 (fitfail = 코드 raw 인데 json 없음, nodet_* = 검출 없음 캡처).
                <stem>_skip.json 이 있는 프레임(인식기가 언로딩 오류·CAP 으로 표시, SLIA §21-cc)은 받지 않는다.
                2분 이내 파일은 아직 처리 중일 수 있어 건너뛴다. 이미 받은 파일은 건너뛴다.
-  1b. newcodes 인식 성공 프레임(json 있음, _skip.json 없음)의 12자리 제품코드마다 지금까지 모은 수(AL_KNOWN_DS + DS, reject 제외,
-               재지정 코드 기준)가 AL_NEWCODE_CAP(60) 미만이면 부족분만큼 시간 균등으로 회수하고, json 의 런타임 마스크(mask_rle)를
+  1b. newcodes 인식 성공 프레임(json 있음, _skip.json 없음)의 12자리 제품코드마다 보유 수(학습 데이터 AL_COUNT_DS 의 프레임 + 그 뒤의
+               새 수집분, reject 제외, 재지정 코드 기준)가 AL_NEWCODE_CAP(60) 미만이면 부족분만큼 시간 균등으로 회수하고, json 의 런타임 마스크(mask_rle)를
                ROI 로 잘라 라벨로 써서 DS 에 넣는다(reason newcode, 보류 상태 — 검수 PC 에서 ★ 대표를 만들어야 함).
                미수집 코드와 60장 미만 코드를 같은 규칙(부족분 = 상한 − 보유)으로 채운다. 누적 수는 $AL_STATE/newcodes.json.
                현장 json 의 코드는 **원래 코드 → 검수 재지정 코드 대응표**(code_alias: 검수 데이터셋에서 사람이 바꾼 코드를 집계,
@@ -75,6 +75,8 @@ CFG = dict(
     exemplar_drop=[x for x in E('AL_EXEMPLAR_DROP', '').split(',') if x],   # 2026-09-19 재검수 반영 후 비움 (검수 PC 가 ★ 를 직접 정리)
     device=E('AL_DEVICE', '1'),   # CUDA_DEVICE_ORDER=PCI_BUS_ID 기준 1 = RTX 4070 Ti (0 = PRO 5000 은 다른 사용자, 2026-09-22)
     known_ds=[x for x in E('AL_KNOWN_DS', f'{HOME}/jhw/data/SL/field_data_hole_all_20260921,{HOME}/jhw/data/SL_under_predict').split(',') if x],
+    # 제품코드별 상한(newcodes)의 보유 수 기준 = 학습 데이터 최신본 (train_current → train_class<N> 심볼릭링크, 2026-09-29)
+    count_ds=E('AL_COUNT_DS', f'{HOME}/jhw/data/SL/yolo26_dataset/train_current'),
     newcode_cap=int(E('AL_NEWCODE_CAP', '60')),
 )
 SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=30', '-o', 'ConnectTimeout=20']
@@ -195,15 +197,26 @@ def known_frames(ds, root):
 
 
 def code_counts(ds):
-    """지금까지 모은 데이터셋(AL_KNOWN_DS)과 DS 자체의 12자리 코드별 프레임 수.
-    재지정 코드 기준, reject 는 빼고, 데이터셋끼리 겹치는 stem 은 한 번만 센다."""
-    from mask_reviewer.dataset import Dataset, is_full_code
-    stems = collections.defaultdict(set)
-    for root in CFG['known_ds'] + [ds.root]:
-        for s, c, status in known_frames(ds, root) or []:
-            if is_full_code(c) and status != 'reject':
-                stems[c].add(s)
-    return {c: len(v) for c, v in stems.items()}
+    """제품코드별 보유 프레임 수 = 학습 데이터(AL_COUNT_DS)의 프레임 + 그 뒤에 새로 모은 DS 프레임.
+    학습 데이터에 들어간 것만 세므로 정제·검수에서 빠진 프레임은 보유로 치지 않는다 (2026-09-29, 그전에는 AL_KNOWN_DS 전체를 셌다).
+    DS 는 학습 데이터의 가장 늦은 촬영일보다 뒤의 프레임만 센다 (아직 검수·학습 반영 전인 새 수집분, reject 제외) —
+    한 사이클에 모은 것이 다음 사이클의 보유 수에 잡혀 상한을 넘겨 모으지 않는다."""
+    from mask_reviewer.dataset import is_full_code
+    n = collections.Counter()
+    last = ''
+    frames = known_frames(ds, CFG['count_ds'])
+    if frames is None:
+        log(f'newcodes: 학습 데이터 {CFG["count_ds"]} 를 읽지 못해 DS 만 셉니다')
+    for s, c, status in frames or []:
+        if is_full_code(c) and status != 'reject':
+            n[c] += 1
+        day = s.rpartition('__')[2][:8]
+        if day.isdigit():
+            last = max(last, day)
+    for s, c, status in known_frames(ds, ds.root) or []:
+        if is_full_code(c) and status != 'reject' and s[:8].isdigit() and s[:8] > last:
+            n[c] += 1
+    return dict(n)
 
 
 def code_alias(ds, min_n=3, min_share=0.8):

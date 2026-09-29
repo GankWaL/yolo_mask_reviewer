@@ -24,10 +24,8 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
-from build_holes_review import OBJ_DIR  # noqa: E402
-from codes_to_sort5 import NAMES as SORT5  # noqa: E402
+from codes_to_sort5 import NAMES as SORT5, major_map, major_of  # noqa: E402
 from mask_reviewer.dataset import STATE_FILE, Dataset  # noqa: E402
-from reassign_codes import obj_class  # noqa: E402
 
 
 def main():
@@ -43,10 +41,7 @@ def main():
     rv = Dataset(a.review)
     tag = dict(m.split('=') for m in a.map)
     cid = {n: k for k, n in v.names.items()}
-    major = {}
-    for fn in sorted(os.listdir(OBJ_DIR)):
-        if fn.lower().endswith('.obj'):
-            major.setdefault(fn[:12], obj_class(fn[:-4]))
+    major = major_map()
 
     rows = []
     stat = collections.Counter()
@@ -66,14 +61,14 @@ def main():
         else:
             code, text, ex, rev = old, v.label_text(s), str(m.get('exemplar', '0')) == '1', 0
             stat['not_reviewed'] += 1
-        if code not in cid or major.get(code) not in SORT5:
+        if code not in cid or major_of(code, major) not in SORT5:
             stat['unknown_code'] += 1
             continue
         polys = [' '.join(l.split()[1:]) for l in text.splitlines() if len(l.split()) >= 7]
         if not polys:
             stat['nolabel'] += 1
             continue
-        rows.append(dict(stem=s, source=m.get('source', vt), code=code, prev_code=old if old != code else '', sort5=major[code],
+        rows.append(dict(stem=s, source=m.get('source', vt), code=code, prev_code=old if old != code else '', sort5=major_of(code, major),
                          exemplar=int(bool(ex)), reviewed=rev, pick=m.get('pick', ''), n_inst=len(polys),
                          train_round=m.get('train_round', ''), train_split=m.get('train_split', ''),
                          train_exclude=m.get('train_exclude', ''), _polys=polys))

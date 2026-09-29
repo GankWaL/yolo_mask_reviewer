@@ -26,19 +26,25 @@
 ## 학습 규칙 (2026-09-23)
 - YOLO 학습(train_codes.py·train_round.py·exp 스크립트·auto_retrain)은 **강건성 증강을 기본으로 포함**한다: hsv_h 0.03, hsv_s 0.8, hsv_v 0.6, 회전 ±10°, 이동 0.15, 스케일 0.7, copy_paste 0.1, bgr 0.05 + albumentations(Blur·MedianBlur·ToGray·CLAHE 자동). 사무실·현장처럼 조명과 벨트색이 다른 환경에서 마스크가 흔들리지 않게 하기 위함 (yolo_mask_reviewer 환경에 albumentations 설치됨). 12자리 코드 모델은 fliplr 0 유지, 5클래스 모델은 fliplr 0.5.
 
-## 오토라벨 클래스 = 12자리 제품코드, CAP 은 학습 제외 (2026-09-23)
-- 새 검수 데이터셋의 인스턴스 클래스는 5클래스가 아니라 제품코드 **322 클래스**(`yolo26_dataset/codes_20260921/codes_nocap_20260923.yaml`
-  = 328 에서 CAP 6종을 뺀 것)다. `gather_datasets.py` 가 기본으로 변환하고, 오토라벨은 `relabel_with_model.py`(기본 모델
-  `retrain/autolabel_current.pt` = yolo26x r2)를 `--map-codes` 없이 돌린다. 학습 안 된 코드는 검수자가 `제품코드 변경…`(모델 추정 코드 표시)으로
-  확정한다. 코드는 자동으로 바꾸지 않는다.
-- **CAP 대분류는 현장에서 검사하지 않으므로 학습에서 완전히 뺀다** (jhw 2026-09-23). 클래스 목록 yaml 의 `dropped_names`(cap 코드 6종, 5클래스는 `cap`)
-  인스턴스를 변환·내보내기(`export --drop-classes`, 기본)·재라벨·`remap_field_codes.py`(`skip_dropped_class`)에서 버리고 names 에서도 빼
-  id 를 당긴다. 5클래스 모델은 앞으로 4클래스(b_cvr, h_cvr, hsg, scalp)로 학습된다 — SLIA 런타임은 클래스 **이름**으로 동작하므로 코드 수정 없이 쓸 수 있다.
-  현장 수집(`field_autolabel.py`)도 CAP 프레임·CAP 코드(newcodes)를 받지 않는다.
+## 클래스 체계: 제품코드 325 클래스, 대분류 5클래스의 1번은 none (2026-09-29)
+- 검수 데이터셋·학습 데이터의 인스턴스 클래스는 12자리 제품코드다. 클래스 목록은 `yolo26_dataset/codes_20260921/codes_none_20260929.yaml`
+  (**325 = 제품코드 324 + `none`**). `gather_datasets.py`·`convert_dataset_classes.py` 의 기본 목록이다. 오토라벨은 `relabel_with_model.py`
+  (기본 모델 `retrain/autolabel_current.pt`)를 `--map-codes` 없이 돌리고, 코드는 검수자가 `제품코드 변경…` 으로 확정한다. 코드는 자동으로 바꾸지 않는다.
+- 대분류 모델은 **5클래스 `b_cvr, none, h_cvr, hsg, scalp`** 로 학습한다 (jhw 2026-09-29). 09-23 의 "cap 을 빼고 4클래스" 규칙은 폐기 —
+  5클래스로 되돌리되 1번 클래스를 cap 대신 **none**(제품이 아닌 물체: 게이트 조각·상자 등)으로 쓴다. 목적은 제품이 아닌 물체에 제품 마스크가
+  나오는 것을 줄이는 것이다. 대분류 이름 목록과 코드→대분류 조회는 `scripts/codes_to_sort5.py`(`NAMES`, `major_of`)가 기준이다.
+- none 학습 프레임은 검수에서 제품코드를 `gate`·`none` 으로 바꿔 제외한 프레임에서 가져온다 (`scripts/add_none_frames.py`, 300장 안팎).
+  프레임 안의 물체는 전부 none 으로 라벨한다 — 라벨 없는 물체가 남지 않게 한다.
+- 고정 검증셋의 none 프레임은 따로 모으지 않는다. **학습 폴더의 none 프레임을 검수한 뒤 그중 일부를 검증셋으로 옮겨** 넣는다 (jhw 2026-09-29).
+  옮긴 프레임은 학습 폴더에서 뺀다.
+- CAP 대분류 제품은 현장에서 검사하지 않으므로 학습 프레임에 넣지 않는다. 제품코드 목록에는 10P091000NT9·10P092000NT9 만 남아 있고
+  (jhw 2026-09-28 복귀) 나머지 CAP 4종은 `dropped_names` 다. 현장 수집(`field_autolabel.py`)은 CAP 코드를 받지 않는다.
+  옛 5클래스 데이터셋(`cap` 이름)의 cap 인스턴스는 내보내기·재라벨에서 계속 버린다.
+- SLIA 런타임은 클래스 **이름**으로 동작한다. `none` 을 내는 모델을 투입하려면 런타임이 `none` 검출을 버리는지 먼저 확인한다.
 
 ## 학습·검증 데이터 운영 (2026-09-29)
-- 학습 데이터 최신본은 `~/jhw/data/SL/yolo26_dataset/train_class<N>`, 고정 검증 데이터는 `valid_class<N>` 이다 (N = 그 폴더의 제품코드 수,
-  현재 `train_class136`·`valid_class143`). 구성·이력은 그 폴더의 `README.md`, 모델 비교는 `train_results.md`(`scripts/eval_valid.py`).
+- 학습 데이터 최신본은 `~/jhw/data/SL/yolo26_dataset/train_class<N>`, 고정 검증 데이터는 `valid_class<N>` 이다 (N = 그 폴더의 클래스 수, none 포함.
+  현재 `train_class137`·`valid_class143`). 자동 수집의 보유 수 기준은 `train_current` 심볼릭링크가 가리키는 폴더다. 구성·이력은 그 폴더의 `README.md`, 모델 비교는 `train_results.md`(`scripts/eval_valid.py`).
 - 제품코드당 학습 프레임은 **60장 상한**이다 (`scripts/cap_per_code.py`, ★ 대표 → 사람이 고친 프레임 → 외형 다양성 순).
 - 목표는 **모든 제품코드를 60장까지 채우는 것**이고 현장 수집을 계속한다 (jhw 2026-09-29). 아직 프레임이 없는 코드와 60장에 못 미치는 코드가 남아 있다.
 - 검증셋에는 있는데 학습 데이터에 없는 코드는 검증 프레임이나 정제 제외 프레임을 끌어다 채우지 않는다.

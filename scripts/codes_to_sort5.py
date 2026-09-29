@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""제품코드 클래스 내보내기 폴더를 대분류 5클래스(b_cvr, cap, h_cvr, hsg, scalp) YOLO 폴더로 바꾼다 (2026-09-28).
+"""제품코드 클래스 내보내기 폴더를 대분류 5클래스(b_cvr, none, h_cvr, hsg, scalp) YOLO 폴더로 바꾼다 (2026-09-28).
 
   python scripts/codes_to_sort5.py SRC OUT
 
@@ -8,6 +8,8 @@
 
 대분류는 obj_product_name 폴더의 obj 이름에서 얻는다 (relabel_with_model.py --map-codes 와 같은 표).
 코드는 export_manifest.csv 의 code 열(재지정 코드 반영). obj 가 없는 코드의 프레임은 건너뛴다.
+1번 클래스는 cap 이 아니라 **none**(제품이 아닌 물체: 게이트 조각·상자 등)이다 (2026-09-29). CAP 대분류 제품은 현장에서 검사하지 않아
+학습에 넣지 않으므로 cap 코드의 프레임은 건너뛴다. 프레임 코드가 `none`·`gate` 면 none 이다.
 """
 import argparse
 import collections
@@ -21,7 +23,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from build_holes_review import OBJ_DIR  # noqa: E402
 from reassign_codes import obj_class  # noqa: E402
 
-NAMES = ['b_cvr', 'cap', 'h_cvr', 'hsg', 'scalp']
+NAMES = ['b_cvr', 'none', 'h_cvr', 'hsg', 'scalp']
+NONE_CODES = ('none', 'gate')   # 검수에서 제품이 아니라고 표시한 프레임의 코드 (대소문자 무시)
+
+
+def major_map():
+    """제품코드 → 대분류 이름 (obj 이름 기준). cap 제품은 넣지 않는다. `major_of(code, table)` 로 조회한다."""
+    table = {}
+    for fn in sorted(os.listdir(OBJ_DIR)):
+        if fn.lower().endswith('.obj'):
+            table.setdefault(fn[:12], obj_class(fn[:-4]))
+    return {c: m for c, m in table.items() if m in NAMES and m != 'none'}
+
+
+def major_of(code, table):
+    """코드의 대분류 (none·gate 는 'none', 모르는 코드·cap 제품은 None)."""
+    return 'none' if (code or '').lower() in NONE_CODES else table.get(code)
 
 
 def main():
@@ -29,17 +46,14 @@ def main():
     ap.add_argument('src')
     ap.add_argument('out')
     a = ap.parse_args()
-    major = {}
-    for f in sorted(os.listdir(OBJ_DIR)):
-        if f.lower().endswith('.obj'):
-            major.setdefault(f[:12], obj_class(f[:-4]))
+    major = major_map()
     with open(os.path.join(a.src, 'export_manifest.csv'), newline='', encoding='utf-8') as f:
         rows = list(csv.DictReader(f))
     cnt = collections.Counter()
     skipped = collections.Counter()
     kept = []
     for r in rows:
-        cls = major.get(r['code'])
+        cls = major_of(r['code'], major)
         if cls not in NAMES:
             skipped[r['code']] += 1
             continue

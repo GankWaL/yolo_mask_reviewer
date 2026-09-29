@@ -27,10 +27,8 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
-from build_holes_review import OBJ_DIR  # noqa: E402
-from codes_to_sort5 import NAMES as SORT5  # noqa: E402
+from codes_to_sort5 import NAMES as SORT5, major_map, major_of  # noqa: E402
 from mask_reviewer.dataset import Dataset  # noqa: E402
-from reassign_codes import obj_class  # noqa: E402
 
 PICK_LABEL = ('exemplar', 'unused_val', 'unused_excluded', 'trained')
 
@@ -50,10 +48,7 @@ def main():
         ref = yaml.safe_load(f)
     names = {int(k): str(v) for k, v in ref['names'].items()}
     cid = {v: k for k, v in names.items()}
-    major = {}
-    for fn in sorted(os.listdir(OBJ_DIR)):
-        if fn.lower().endswith('.obj'):
-            major.setdefault(fn[:12], obj_class(fn[:-4]))
+    major = major_map()
 
     cand = collections.defaultdict(list)   # code -> [(순위, ds, stem)]
     skipped = collections.Counter()
@@ -63,7 +58,7 @@ def main():
             if ds.state.status(s) != 'ok':
                 continue
             code = ds.code(s)
-            if code not in cid or major.get(code) not in SORT5:
+            if code not in cid or major_of(code, major) not in SORT5:
                 skipped[code] += 1
                 continue
             if not any(len(l.split()) >= 7 for l in ds.label_text(s).splitlines()):
@@ -99,12 +94,12 @@ def main():
         else:
             text = ds.label_text(s)
         polys = [' '.join(l.split()[1:]) for l in text.splitlines() if len(l.split()) >= 7]
-        for sub, k in (('', cid[code]), ('sort5', SORT5.index(major[code]))):
+        for sub, k in (('', cid[code]), ('sort5', SORT5.index(major_of(code, major)))):
             os.link(src, os.path.join(out, sub, 'images', 'val', stem + os.path.splitext(src)[1]))
             with open(os.path.join(out, sub, 'labels', 'val', stem + '.txt'), 'w', encoding='utf-8') as f:
                 f.write(''.join(f'{k} {p}\n' for p in polys))
         e = ds.state.get(s)
-        rows.append(dict(stem=stem, source=tag, code=code, sort5=major[code], exemplar=int(bool(e.get('exemplar'))),
+        rows.append(dict(stem=stem, source=tag, code=code, sort5=major_of(code, major), exemplar=int(bool(e.get('exemplar'))),
                          pick=PICK_LABEL[rank], n_inst=len(polys), train_round=e.get('train_round', ''),
                          train_split=e.get('train_split', ''), train_exclude=int(bool(e.get('train_exclude')))))
     with open(os.path.join(out, 'manifest.csv'), 'w', newline='', encoding='utf-8') as f:

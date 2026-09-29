@@ -29,10 +29,9 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
-from build_holes_review import OBJ_DIR  # noqa: E402
-from codes_to_sort5 import NAMES as SORT5  # noqa: E402
+from codes_to_sort5 import NAMES as SORT5, major_map, major_of  # noqa: E402
 from mask_reviewer.dataset import STATE_FILE, Dataset  # noqa: E402
-from reassign_codes import dino_crop_embed, obj_class  # noqa: E402
+from reassign_codes import dino_crop_embed  # noqa: E402
 
 
 def label_bbox(text, w, h):
@@ -79,10 +78,7 @@ def main():
 
     ds = Dataset(a.src)
     cid = {v: k for k, v in ds.names.items()}
-    major = {}
-    for fn in sorted(os.listdir(OBJ_DIR)):
-        if fn.lower().endswith('.obj'):
-            major.setdefault(fn[:12], obj_class(fn[:-4]))
+    major = major_map()
 
     ex_state = {}
     for spec in a.exemplars:
@@ -104,7 +100,7 @@ def main():
         report.append(row)
         if ds.state.status(s) == 'reject':
             row['reason'] = 'reject'
-        elif code not in cid or major.get(code) not in SORT5:
+        elif code not in cid or major_of(code, major) not in SORT5:
             row['reason'] = 'unknown_code'
         elif not any(len(l.split()) >= 7 for l in ds.label_text(s).splitlines()):
             row['reason'] = 'nolabel'
@@ -166,13 +162,13 @@ def main():
         s, sp = r['stem'], r['split']
         src = ds.image_path(s)
         polys = [' '.join(l.split()[1:]) for l in ds.label_text(s).splitlines() if len(l.split()) >= 7]
-        for sub, k in (('', cid[r['code']]), ('sort5', SORT5.index(major[r['code']]))):
+        for sub, k in (('', cid[r['code']]), ('sort5', SORT5.index(major_of(r['code'], major)))):
             for d in ('images', 'labels'):
                 os.makedirs(os.path.join(out, sub, d, sp), exist_ok=True)
             os.link(src, os.path.join(out, sub, 'images', sp, os.path.basename(src)))
             with open(os.path.join(out, sub, 'labels', sp, s + '.txt'), 'w', encoding='utf-8') as f:
                 f.write(''.join(f'{k} {p}\n' for p in polys))
-        r['sort5'] = major[r['code']]
+        r['sort5'] = major_of(r['code'], major)
         n[sp] += 1
     man_src = ds.manifest
     fields = ['stem', 'split', 'code', 'sort5', 'exemplar', 'human', 'reason', 'export', 'source', 'label_src']

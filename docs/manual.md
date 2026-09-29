@@ -221,6 +221,22 @@ python scripts/eval_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class143 <모델
 
 `eval_valid.py` 는 모델 클래스 수로 5클래스(`sort5/`)·제품코드 폴더를 고르고, 클래스 목록이 다른 옛 모델도 이름으로 맞춰 평가한다.
 
+### none 클래스 프레임 추가 (`scripts/add_none_frames.py`, 2026-09-29)
+
+대분류 5클래스의 1번은 cap 이 아니라 **none**(제품이 아닌 물체: 게이트 조각·상자 등)이다. 제품이 아닌 물체에 제품 마스크가 나오는 것을 줄이려고
+검수에서 제품코드를 `gate`·`none` 으로 바꿔 제외한 프레임을 none 으로 학습에 넣는다.
+
+- 후보가 `--n`(300)보다 많으면 프레임 전체의 DINOv2 임베딩으로 외형이 고르게 남도록 고른다. 10장마다 1장이 val.
+- 검수 라벨은 물체 일부에만 있는 경우가 많다. 모델(`--model`, 기본 운영 5클래스 모델)이 찾은 마스크 중 기존 라벨과 안 겹치는 것도 none 으로 넣는다.
+  그래도 빠지는 물체가 있으므로 결과 폴더를 검수 툴로 열어 상태 `보류`(메모 "none 자동 라벨")인 프레임을 확인한다.
+- 결과는 새 `train_class<N>/` (N 은 none 을 포함한 클래스 수). 제품코드 클래스 목록 맨 뒤에 `none` 이 붙는다 (`codes_none_20260929.yaml`, 325).
+
+```bash
+python scripts/add_none_frames.py ~/jhw/data/SL/yolo26_dataset/train_class136 --out-root ~/jhw/data/SL/yolo26_dataset --n 300 \
+    --sources ~/jhw/data/SL/field_new_20260923 ~/jhw/data/SL/field_data_hole_all_20260921 \
+    --pools ~/jhw/data/SL_under_predict_auto ~/jhw/data/SL_under_predict ~/jhw/data/SL_under_predict_yolo1
+```
+
 ### 제품코드별 장수 상한 (`scripts/cap_per_code.py`, 2026-09-29)
 
 클래스 균형을 위해 학습 폴더에서 제품코드마다 상한(기본 60장)까지만 남긴 새 폴더 `train_class<N>/` 을 만든다. 원본 폴더는 건드리지 않는다.
@@ -350,9 +366,9 @@ python scripts/field_autolabel.py run 20260919  # 날짜 지정 / fetch·collect
 ### 제품코드별 상한 채우기 (`newcodes`, 2026-09-22)
 
 `run` 은 fetch 다음에 `newcodes` 를 돈다: 현장 `save_pose_debug/<날짜>/` 의 **인식 성공 프레임**(json 있음, 인식기가 `_skip.json` 으로
-수집 제외 표시한 프레임은 뺌) 파일명에서 12자리 코드를 뽑아, 코드마다 지금까지 모은 수 — `AL_KNOWN_DS`(기본
-`field_data_hole_all_20260921` + `SL_under_predict`) 와 DS 자체를 합쳐 재지정 코드 기준으로 세고, reject 와 데이터셋끼리 겹치는 stem 은
-빼거나 한 번만 — 가 **`AL_NEWCODE_CAP`(60) 미만이면 부족분만큼** 시간 균등으로 raw+json 을 회수한다. 미수집 코드(보유 0)와 60장 미만
+수집 제외 표시한 프레임은 뺌) 파일명에서 12자리 코드를 뽑아, 코드마다 보유 수 — **학습 데이터 최신본**(`AL_COUNT_DS`, 기본
+`yolo26_dataset/train_current` 심볼릭링크 → `train_class<N>`)의 프레임에 그 뒤(학습 데이터의 가장 늦은 촬영일 다음 날부터) 새로 모은 DS 프레임을
+더한 것, 재지정 코드 기준·reject 제외 (2026-09-29; 그전에는 `AL_KNOWN_DS` 전체를 세어 정제·검수에서 빠진 프레임까지 보유로 쳤다) — 가 **`AL_NEWCODE_CAP`(60) 미만이면 부족분만큼** 시간 균등으로 raw+json 을 회수한다. 미수집 코드(보유 0)와 60장 미만
 코드를 같은 규칙으로 채우므로, 이미 모은 코드도 60장이 될 때까지 계속 모인다. json 의 런타임 마스크(`mask_rle`)를 ROI 로 잘라
 라벨(대분류 = json `large_sort`)로 써서 DS 에 넣는다 (reason `newcode`, 보류, 메모 "★ 대표 필요"). 검수 PC 에서 이 프레임들로 ★ 대표를
 만들면 이후 전파에 쓰인다. 누적 수집 수는 `$AL_STATE/newcodes.json`(코드별 n·first·last).
