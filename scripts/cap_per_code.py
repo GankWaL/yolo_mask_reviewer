@@ -9,9 +9,9 @@
              (review_state.json 만 있으면 된다). SRC 자체의 ★ 도 쓴다.
 
 검수 반영: 제외(reject) 프레임은 빼고, 편집본이 있으면 그 라벨을, 재지정 코드가 있으면 그 코드를 쓴다.
-고르는 법 (코드·split 마다): 상한을 split 비율대로 나누고(val 이 있으면 최소 1장), ★ 대표와 사람이 고친 프레임(편집본·코드 재지정)을 먼저 넣은 뒤
-나머지는 물체 크롭의 DINOv2 임베딩을 k-means 로 남은 자리 수만큼 묶어 묶음마다 중심에 가장 가까운 한 장을 고른다 —
-비슷한 프레임이 몰린 곳은 줄고 드문 외형은 남는다. 상한 이하인 코드는 전부 남긴다.
+고르는 법 (코드·split 마다): 상한을 split 비율대로 나누고(val 이 있으면 최소 1장), ★ 대표 → 사람이 고친 프레임(편집본·코드 재지정) → 나머지
+순으로 채운다. 자리가 모자란 단계에서는 물체 크롭의 DINOv2 임베딩을 k-means 로 남은 자리 수만큼 묶어 묶음마다 중심에 가장 가까운 한 장을
+고른다 — 비슷한 프레임이 몰린 곳은 줄고 드문 외형은 남는다. 상한 이하인 코드는 전부 남긴다.
 결과: train_class<N>/{images,labels}/<split>, sort5/(같은 프레임 5클래스), dataset.yaml, manifest.csv, cap_report.csv(전 프레임의 keep·사유),
 review_state.json(★ 대표 = exemplar·확정 — 검수 툴의 대표 필터·목록 ★ 표시용).
 """
@@ -140,16 +140,21 @@ def main():
             quota[sp] = min(q, len(splits[sp]))
             left -= quota[sp]
         for sp, rs in splits.items():
-            forced = [r for r in rs if r['human'] or r['exemplar']]
-            rest = [r for r in rs if not (r['human'] or r['exemplar'])]
-            if len(forced) > quota[sp]:
-                rest, forced = forced, []
-            for r in forced:
-                r['keep'], r['reason'] = 1, 'exemplar' if r['exemplar'] else 'human'
-            k = quota[sp] - len(forced)
-            pick = set(pick_diverse(np.stack([emb[r['stem']] for r in rest]), k, a.seed)) if rest else set()
-            for i, r in enumerate(rest):
-                r['keep'], r['reason'] = (1, 'diverse') if i in pick else (0, 'over_cap')
+            # 우선순위: ★ 대표 → 사람이 고친 프레임 → 나머지. 자리가 모자란 단계에서만 다양성 기준으로 고르고 그 아래 단계는 모두 뺀다
+            tiers = [('exemplar', [r for r in rs if r['exemplar']]),
+                     ('human', [r for r in rs if r['human'] and not r['exemplar']]),
+                     ('diverse', [r for r in rs if not (r['human'] or r['exemplar'])])]
+            left_sp = quota[sp]
+            for name, tier in tiers:
+                if len(tier) <= left_sp:
+                    pick = set(range(len(tier)))
+                elif left_sp > 0:
+                    pick = set(pick_diverse(np.stack([emb[r['stem']] for r in tier]), left_sp, a.seed))
+                else:
+                    pick = set()
+                for i, r in enumerate(tier):
+                    r['keep'], r['reason'] = (1, name) if i in pick else (0, 'over_cap')
+                left_sp -= len(pick)
 
     kept = [r for r in report if r['keep']]
     codes = sorted({r['code'] for r in kept})

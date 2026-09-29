@@ -208,13 +208,26 @@ python scripts/build_valid_set.py --names CODES.yaml --out-root ~/jhw/data/SL/yo
 yolo segment val model=<모델.pt> data=<valid_class<N>/dataset.yaml> split=val
 ```
 
+### 검증셋에 검수 결과 반영·평가 (`scripts/update_valid_set.py`, `scripts/eval_valid.py`, 2026-09-29)
+
+학습 폴더를 검수 툴로 검수하면 같은 원본 프레임이 검증셋에도 들어 있을 수 있다. `update_valid_set.py` 는 검수한 학습 폴더의 코드 재지정·편집본·
+제외·★ 대표를 검증셋의 같은 프레임에 반영해 새 `valid_class<N>/` 을 만든다 (기존 폴더는 건드리지 않으므로 이름이 같으면 먼저 옮겨 둔다).
+겹치지 않는 프레임은 그대로 두고 `manifest.csv` 의 `reviewed` 열로 구별한다. 코드 재지정으로 5장을 넘는 코드는 ★ 대표 → 검수된 프레임 순으로 남긴다.
+
+```bash
+python scripts/update_valid_set.py VALID --review <검수한 학습 폴더> --map <검증 태그>=<학습 태그> ... --out-root ~/jhw/data/SL/yolo26_dataset
+python scripts/eval_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class145 <모델.pt> [<모델.pt> ...]   # 마스크 mAP·P/R, top-1, 미검출, ms
+```
+
+`eval_valid.py` 는 모델 클래스 수로 5클래스(`sort5/`)·제품코드 폴더를 고르고, 클래스 목록이 다른 옛 모델도 이름으로 맞춰 평가한다.
+
 ### 제품코드별 장수 상한 (`scripts/cap_per_code.py`, 2026-09-29)
 
 클래스 균형을 위해 학습 폴더에서 제품코드마다 상한(기본 60장)까지만 남긴 새 폴더 `train_class<N>/` 을 만든다. 원본 폴더는 건드리지 않는다.
 
 - 검수 반영: 검수 툴로 학습 폴더를 열어 고친 것(제외·편집본·코드 재지정)을 먼저 반영한다. 제외 프레임은 빠진다.
-- 고르는 법: 상한을 train/val 비율대로 나누고(val 이 있으면 최소 1장), ★ 대표와 사람이 고친 프레임을 먼저 넣은 뒤 나머지는 물체 크롭의
-  DINOv2 임베딩을 남은 자리 수만큼 k-means 로 묶어 묶음마다 중심에 가장 가까운 한 장을 고른다. 비슷한 프레임이 몰린 곳은 줄고 드문 외형은 남는다.
+- 고르는 법: 상한을 train/val 비율대로 나누고(val 이 있으면 최소 1장), ★ 대표 → 사람이 고친 프레임 → 나머지 순으로 채운다. 자리가 모자란
+  단계에서는 물체 크롭의 DINOv2 임베딩을 남은 자리 수만큼 k-means 로 묶어 묶음마다 중심에 가장 가까운 한 장을 고른다. 비슷한 프레임이 몰린 곳은 줄고 드문 외형은 남는다.
 - ★ 대표는 `--exemplars <TAG>=<원본 검수 데이터셋>` 으로 원본의 `review_state.json` 에서 가져온다 (학습 폴더 stem 이 `<TAG>__<원본 stem>`).
   결과 폴더의 `review_state.json` 에 대표·확정으로 적혀 검수 툴 목록의 ★ 와 `대표` 필터로 볼 수 있다.
 - 상한 이하인 코드는 전부 남긴다. `cap_report.csv` 에 전 프레임의 남김 여부와 사유(`exemplar`, `human`, `diverse`, `over_cap`, `under_cap`, `reject`)가 남는다.
