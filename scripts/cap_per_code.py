@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """학습 데이터셋의 제품코드별 장수를 상한(기본 60)으로 줄인다 — 클래스 균형용, 외형 다양성을 남기는 쪽으로 고른다 (2026-09-29).
 
-  python scripts/cap_per_code.py SRC --out-root DIR [--cap 60] [--device 0] [--exemplars TAG=DATASET ...]
+  python scripts/cap_per_code.py SRC --out-root DIR [--cap 60] [--device 0] [--exemplars TAG=DATASET ...] [--exclude-stems FILE]
 
   SRC        검수 툴로 여는 학습 폴더 (images/<split>, labels/<split>, manifest.csv, 있으면 review_state.json·labels_reviewed).
   --out-root 이 아래에 train_class<N>/ 을 새로 만든다 (N = 남은 제품코드 수). SRC 는 건드리지 않는다.
   --exemplars ★ 대표 표시를 가져올 원본 검수 데이터셋. SRC 의 stem 이 `<TAG>__<원본 stem>` 일 때 TAG 마다 그 데이터셋 폴더
              (review_state.json 만 있으면 된다). SRC 자체의 ★ 도 쓴다.
+  --exclude-stems 뺄 stem 목록 파일 (한 줄에 하나). 고정 검증셋으로 옮긴 프레임을 학습에서 뺄 때 쓴다 (사유 moved_to_valid).
+상한은 제품코드에만 건다. none(제품이 아닌 물체) 프레임은 상한 없이 전부 남긴다.
 
 검수 반영: 제외(reject) 프레임은 빼고, 편집본이 있으면 그 라벨을, 재지정 코드가 있으면 그 코드를 쓴다.
 고르는 법 (코드·split 마다): 상한을 split 비율대로 나누고(val 이 있으면 최소 1장), ★ 대표 → 사람이 고친 프레임(편집본·코드 재지정) → 나머지
@@ -73,6 +75,7 @@ def main():
     ap.add_argument('--device', default='0')
     ap.add_argument('--seed', type=int, default=0)
     ap.add_argument('--exemplars', nargs='*', default=[], metavar='TAG=DATASET')
+    ap.add_argument('--exclude-stems', default=None)
     ap.add_argument('--emb-cache', default=None, help='임베딩 캐시 npz (기본: 출력 폴더의 .cap_dino.npz, 끝나면 지움)')
     a = ap.parse_args()
 
@@ -80,6 +83,10 @@ def main():
     cid = {v: k for k, v in ds.names.items()}
     major = major_map()
 
+    excluded = set()
+    if a.exclude_stems:
+        with open(a.exclude_stems, encoding='utf-8') as f:
+            excluded = {l.strip() for l in f if l.strip()}
     ex_state = {}
     for spec in a.exemplars:
         tag, _, root = spec.partition('=')
@@ -100,6 +107,8 @@ def main():
         report.append(row)
         if ds.state.status(s) == 'reject':
             row['reason'] = 'reject'
+        elif s in excluded:
+            row['reason'] = 'moved_to_valid'
         elif code not in cid or major_of(code, major) not in SORT5:
             row['reason'] = 'unknown_code'
         elif not any(len(l.split()) >= 7 for l in ds.label_text(s).splitlines()):
@@ -107,7 +116,7 @@ def main():
         else:
             by_code[code].append(row)
 
-    over = {c: r for c, r in by_code.items() if len(r) > a.cap}
+    over = {c: r for c, r in by_code.items() if len(r) > a.cap and major_of(c, major) != 'none'}
     items = []
     for rows in over.values():
         for r in rows:

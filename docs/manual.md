@@ -216,7 +216,7 @@ yolo segment val model=<모델.pt> data=<valid_class<N>/dataset.yaml> split=val
 
 ```bash
 python scripts/update_valid_set.py VALID --review <검수한 학습 폴더> --map <검증 태그>=<학습 태그> ... --out-root ~/jhw/data/SL/yolo26_dataset
-python scripts/eval_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class143 <모델.pt> [<모델.pt> ...]   # 마스크 mAP·P/R, top-1, 미검출, ms
+python scripts/eval_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class144 <모델.pt> [<모델.pt> ...]   # 마스크 mAP·P/R, top-1, 미검출, ms
 ```
 
 `eval_valid.py` 는 모델 클래스 수로 5클래스(`sort5/`)·제품코드 폴더를 고르고, 클래스 목록이 다른 옛 모델도 이름으로 맞춰 평가한다.
@@ -237,6 +237,13 @@ python scripts/add_none_frames.py ~/jhw/data/SL/yolo26_dataset/train_class136 --
     --pools ~/jhw/data/SL_under_predict_auto ~/jhw/data/SL_under_predict ~/jhw/data/SL_under_predict_yolo1
 ```
 
+검수가 끝나면 none 프레임 일부를 고정 검증셋으로 옮기고, 학습 폴더는 검수를 반영해 다시 만든다 (제외 프레임과 옮긴 프레임이 빠진다).
+
+```bash
+python scripts/move_none_to_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class143 --train <검수한 학습 폴더> --out-root ~/jhw/data/SL/yolo26_dataset --n 10
+python scripts/cap_per_code.py <검수한 학습 폴더> --out-root ~/jhw/data/SL/yolo26_dataset --exclude-stems <새 검증 폴더>/moved_from_train.txt
+```
+
 ### 제품코드별 장수 상한 (`scripts/cap_per_code.py`, 2026-09-29)
 
 클래스 균형을 위해 학습 폴더에서 제품코드마다 상한(기본 60장)까지만 남긴 새 폴더 `train_class<N>/` 을 만든다. 원본 폴더는 건드리지 않는다.
@@ -246,7 +253,7 @@ python scripts/add_none_frames.py ~/jhw/data/SL/yolo26_dataset/train_class136 --
   단계에서는 물체 크롭의 DINOv2 임베딩을 남은 자리 수만큼 k-means 로 묶어 묶음마다 중심에 가장 가까운 한 장을 고른다. 비슷한 프레임이 몰린 곳은 줄고 드문 외형은 남는다.
 - ★ 대표는 `--exemplars <TAG>=<원본 검수 데이터셋>` 으로 원본의 `review_state.json` 에서 가져온다 (학습 폴더 stem 이 `<TAG>__<원본 stem>`).
   결과 폴더의 `review_state.json` 에 대표·확정으로 적혀 검수 툴 목록의 ★ 와 `대표` 필터로 볼 수 있다.
-- 상한 이하인 코드는 전부 남긴다. `cap_report.csv` 에 전 프레임의 남김 여부와 사유(`exemplar`, `human`, `diverse`, `over_cap`, `under_cap`, `reject`)가 남는다.
+- 상한 이하인 코드는 전부 남긴다. none 프레임에는 상한을 걸지 않는다. `--exclude-stems <파일>` 의 stem 은 뺀다 (검증셋으로 옮긴 프레임). `cap_report.csv` 에 전 프레임의 남김 여부와 사유(`exemplar`, `human`, `diverse`, `over_cap`, `under_cap`, `reject`)가 남는다.
 
 ```bash
 python scripts/cap_per_code.py ~/jhw/data/SL/yolo26_dataset/train_class139 --out-root ~/jhw/data/SL/yolo26_dataset --cap 60 \
