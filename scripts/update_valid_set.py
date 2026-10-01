@@ -9,7 +9,10 @@
   --out-root 이 아래에 valid_class<N>/ 을 새로 만든다 (N = 제품코드 수). VALID 는 건드리지 않는다.
 
 검수 폴더에 같은 프레임이 있으면 그 코드·라벨·대표 여부를 쓰고 제외(reject)면 뺀다. 없는 프레임은 그대로 둔다 (manifest 의 reviewed=0).
-코드 재지정으로 한 코드가 --max-per-code(5)장을 넘으면 ★ 대표 → 검수된 프레임 → 나머지 순으로 남긴다.
+인스턴스 클래스는 라벨에 적힌 대로 둔다 (한 프레임에 다른 코드의 제품이 둘 있을 수 있다, 2026-10-01). 다만 프레임 코드를 재지정했는데
+인스턴스 클래스가 옛 프레임 코드 그대로면 새 코드로 바꾼다. 검수 폴더의 클래스 목록이 검증 폴더와 다르면(5클래스 등) 프레임 코드를 쓴다.
+프레임 코드와 같은 코드의 인스턴스가 둘 이상이면 가장 넓은 것만 남긴다 (가장자리에 잘린 같은 제품은 평가에서 뺌; 다른 코드·none 은 유지).
+코드 재지정으로 한 코드가 --max-per-code(5)장을 넘으면 ★ 대표 → 검수된 프레임 → 나머지 순으로 남긴다 (none 프레임은 상한 없음).
 결과 구조는 build_valid_set.py 와 같다 (루트 = 제품코드 클래스, sort5/ = 대분류 5클래스) + review_state.json(★ 대표).
 """
 import argparse
@@ -24,7 +27,7 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
-from codes_to_sort5 import NAMES as SORT5, major_map, major_of  # noqa: E402
+from codes_to_sort5 import NAMES as SORT5, drop_same_code_dups, edge_none_rule, major_map, major_of  # noqa: E402
 from mask_reviewer.dataset import STATE_FILE, Dataset  # noqa: E402
 
 
@@ -64,10 +67,22 @@ def main():
         if code not in cid or major_of(code, major) not in SORT5:
             stat['unknown_code'] += 1
             continue
-        polys = [' '.join(l.split()[1:]) for l in text.splitlines() if len(l.split()) >= 7]
+        src_names = rv.names if (rev and set(rv.names.values()) >= {code}) else None
+        polys = []   # [(클래스 이름, 폴리곤)]
+        for l in text.splitlines():
+            w = l.split()
+            if len(w) < 7:
+                continue
+            name = src_names.get(int(w[0])) if src_names else None
+            if name is None or name == old or name not in cid or major_of(name, major) not in SORT5:
+                name = code
+            polys.append((name, ' '.join(w[1:])))
         if not polys:
             stat['nolabel'] += 1
             continue
+        n0 = len(polys)
+        polys = drop_same_code_dups(edge_none_rule(polys), code)
+        stat['same_code_dup_dropped'] += n0 - len(polys)
         rows.append(dict(stem=s, source=m.get('source', vt), code=code, prev_code=old if old != code else '', sort5=major_of(code, major),
                          exemplar=int(bool(ex)), reviewed=rev, pick=m.get('pick', ''), n_inst=len(polys),
                          train_round=m.get('train_round', ''), train_split=m.get('train_split', ''),
@@ -79,22 +94,24 @@ def main():
     kept = []
     for code in sorted(by_code):
         rs = sorted(by_code[code], key=lambda r: (-r['exemplar'], -r['reviewed'], r['stem']))
-        stat['over_cap'] += max(0, len(rs) - a.max_per_code)
-        kept += rs[:a.max_per_code]
+        cap = len(rs) if major_of(code, major) == 'none' else a.max_per_code   # none 프레임은 상한 없음
+        stat['over_cap'] += max(0, len(rs) - cap)
+        kept += rs[:cap]
     codes = sorted({r['code'] for r in kept})
     out = os.path.join(a.out_root, f'valid_class{len(codes)}')
     if os.path.exists(out):
         sys.exit(f'이미 있습니다: {out}')
     for r in kept:
         src = v.image_path(r['stem'])
-        for sub, k in (('', cid[r['code']]), ('sort5', SORT5.index(r['sort5']))):
+        for sub in ('', 'sort5'):
             for d in ('images', 'labels'):
                 os.makedirs(os.path.join(out, sub, d, 'val'), exist_ok=True)
             os.link(src, os.path.join(out, sub, 'images', 'val', os.path.basename(src)))
             with open(os.path.join(out, sub, 'labels', 'val', r['stem'] + '.txt'), 'w', encoding='utf-8') as f:
-                f.write(''.join(f'{k} {p}\n' for p in r['_polys']))
+                f.write(''.join(f'{cid[n] if sub == "" else SORT5.index(major_of(n, major))} {p}\n' for n, p in r['_polys']))
     fields = [k for k in kept[0] if not k.startswith('_')]
-    state = {r['stem']: {'exemplar': True, 'status': 'ok', 'note': '대표'} for r in kept if r['exemplar']}
+    state = {r['stem']: {'exemplar': bool(r['exemplar']), 'status': 'ok' if r['reviewed'] else 'pending',
+                         'note': '대표' if r['exemplar'] else ('검수 완료' if r['reviewed'] else '미검수')} for r in kept}
     head = (f'# 고정 검증용 데이터셋 (update_valid_set.py): {os.path.abspath(a.valid)} 에 {os.path.abspath(a.review)} 의 검수 결과 반영\n'
             f'# 제품코드 {len(codes)}종, {len(kept)}장 (검수 반영 {sum(r["reviewed"] for r in kept)}장, ★ 대표 {len(state)}장)\n')
     for sub, nm in (('', v.names), ('sort5', dict(enumerate(SORT5)))):

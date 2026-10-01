@@ -41,6 +41,47 @@ def major_of(code, table):
     return 'none' if (code or '').lower() in NONE_CODES else table.get(code)
 
 
+def poly_area(poly):
+    """정규화 폴리곤 문자열('x y x y …')의 신발끈 면적 (상대값, 비교용)."""
+    v = [float(x) for x in poly.split()]
+    pts = list(zip(v[0::2], v[1::2]))
+    return abs(sum(x0 * y1 - x1 * y0 for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1]))) / 2
+
+
+EDGE_NONE_RATIO = 0.1
+
+
+def poly_centroid(poly):
+    v = [float(x) for x in poly.split()]
+    xs, ys = v[0::2], v[1::2]
+    return sum(xs) / len(xs), sum(ys) / len(ys)
+
+
+def edge_none_rule(polys, ratio=EDGE_NONE_RATIO):
+    """가장자리 제품 규칙 (jhw 2026-10-01): 인스턴스가 둘 이상이면 중심에 가장 가까운 인스턴스를 '가운데 제품'으로 보고,
+    나머지 중 면적이 가운데 제품의 ratio(10%, 2026-10-01 저녁 30%→10%) 미만인 것은 무조건 none 으로 바꾼다. 가운데 제품이 none 이면 손대지 않는다.
+    polys = [(클래스 이름, 폴리곤)]."""
+    if len(polys) < 2:
+        return list(polys)
+    center = min(range(len(polys)), key=lambda i: sum((c - 0.5) ** 2 for c in poly_centroid(polys[i][1])))
+    if polys[center][0] == 'none':
+        return list(polys)
+    thr = poly_area(polys[center][1]) * ratio
+    return [(n if i == center or poly_area(p) >= thr else 'none', p) for i, (n, p) in enumerate(polys)]
+
+
+def drop_same_code_dups(polys, code):
+    """검증셋 규칙 (jhw 2026-10-01): 프레임 코드와 같은 코드의 인스턴스가 둘 이상이면 가장 넓은 것만 남긴다 (가장자리에 잘린 같은 제품은 평가에서 뺀다).
+    다른 코드·none 인스턴스는 그대로 둔다. none 프레임은 손대지 않는다. polys = [(클래스 이름, 폴리곤)]."""
+    if (code or '').lower() in NONE_CODES:
+        return list(polys)
+    same = [(poly_area(p), i) for i, (n, p) in enumerate(polys) if n == code]
+    if len(same) <= 1:
+        return list(polys)
+    keep = max(same)[1]
+    return [(n, p) for i, (n, p) in enumerate(polys) if n != code or i == keep]
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('src')

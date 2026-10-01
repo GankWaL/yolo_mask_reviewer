@@ -10,7 +10,8 @@
   --exclude-stems 뺄 stem 목록 파일 (한 줄에 하나). 고정 검증셋으로 옮긴 프레임을 학습에서 뺄 때 쓴다 (사유 moved_to_valid).
 상한은 제품코드에만 건다. none(제품이 아닌 물체) 프레임은 상한 없이 전부 남긴다.
 
-검수 반영: 제외(reject) 프레임은 빼고, 편집본이 있으면 그 라벨을, 재지정 코드가 있으면 그 코드를 쓴다.
+검수 반영: 제외(reject) 프레임은 빼고, 편집본이 있으면 그 라벨을, 재지정 코드가 있으면 그 코드를 쓴다. 인스턴스 클래스는 라벨대로 두고(다른 코드·none 유지),
+가장자리 제품 규칙(`codes_to_sort5.edge_none_rule`: 가운데 제품 면적의 10% 미만이면 none)을 적용한다.
 고르는 법 (코드·split 마다): 상한을 split 비율대로 나누고(val 이 있으면 최소 1장), ★ 대표 → 사람이 고친 프레임(편집본·코드 재지정) → 나머지
 순으로 채운다. 자리가 모자란 단계에서는 물체 크롭의 DINOv2 임베딩을 k-means 로 남은 자리 수만큼 묶어 묶음마다 중심에 가장 가까운 한 장을
 고른다 — 비슷한 프레임이 몰린 곳은 줄고 드문 외형은 남는다. 상한 이하인 코드는 전부 남긴다.
@@ -31,7 +32,7 @@ import yaml
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.dirname(HERE))
-from codes_to_sort5 import NAMES as SORT5, major_map, major_of  # noqa: E402
+from codes_to_sort5 import NAMES as SORT5, edge_none_rule, major_map, major_of  # noqa: E402
 from mask_reviewer.dataset import STATE_FILE, Dataset  # noqa: E402
 from reassign_codes import dino_crop_embed  # noqa: E402
 
@@ -170,13 +171,23 @@ def main():
     for r in kept:
         s, sp = r['stem'], r['split']
         src = ds.image_path(s)
-        polys = [' '.join(l.split()[1:]) for l in ds.label_text(s).splitlines() if len(l.split()) >= 7]
-        for sub, k in (('', cid[r['code']]), ('sort5', SORT5.index(major_of(r['code'], major)))):
+        # 인스턴스 클래스는 라벨대로 (다른 코드·none 인스턴스 유지), 프레임 코드와 같던 옛 코드는 재지정 코드로. 가장자리 작은 제품은 none (edge_none_rule)
+        polys = []
+        for l in ds.label_text(s).splitlines():
+            w_ = l.split()
+            if len(w_) < 7:
+                continue
+            nm = ds.names.get(int(w_[0]), '')
+            if nm == ds.orig_code(s) or nm not in cid or major_of(nm, major) not in SORT5:
+                nm = r['code']
+            polys.append((nm, ' '.join(w_[1:])))
+        polys = edge_none_rule(polys)
+        for sub in ('', 'sort5'):
             for d in ('images', 'labels'):
                 os.makedirs(os.path.join(out, sub, d, sp), exist_ok=True)
             os.link(src, os.path.join(out, sub, 'images', sp, os.path.basename(src)))
             with open(os.path.join(out, sub, 'labels', sp, s + '.txt'), 'w', encoding='utf-8') as f:
-                f.write(''.join(f'{k} {p}\n' for p in polys))
+                f.write(''.join(f'{cid[nm] if sub == "" else SORT5.index(major_of(nm, major))} {p}\n' for nm, p in polys))
         r['sort5'] = major_of(r['code'], major)
         n[sp] += 1
     man_src = ds.manifest

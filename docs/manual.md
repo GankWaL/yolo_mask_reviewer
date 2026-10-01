@@ -216,7 +216,7 @@ yolo segment val model=<모델.pt> data=<valid_class<N>/dataset.yaml> split=val
 
 ```bash
 python scripts/update_valid_set.py VALID --review <검수한 학습 폴더> --map <검증 태그>=<학습 태그> ... --out-root ~/jhw/data/SL/yolo26_dataset
-python scripts/eval_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class144 <모델.pt> [<모델.pt> ...]   # 마스크 mAP·P/R, top-1, 미검출, ms
+python scripts/eval_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class130 <모델.pt> [<모델.pt> ...]   # 마스크 mAP·P/R, top-1, 미검출, ms
 ```
 
 `eval_valid.py` 는 모델 클래스 수로 5클래스(`sort5/`)·제품코드 폴더를 고르고, 클래스 목록이 다른 옛 모델도 이름으로 맞춰 평가한다.
@@ -242,6 +242,29 @@ python scripts/add_none_frames.py ~/jhw/data/SL/yolo26_dataset/train_class136 --
 ```bash
 python scripts/move_none_to_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class143 --train <검수한 학습 폴더> --out-root ~/jhw/data/SL/yolo26_dataset --n 10
 python scripts/cap_per_code.py <검수한 학습 폴더> --out-root ~/jhw/data/SL/yolo26_dataset --exclude-stems <새 검증 폴더>/moved_from_train.txt
+```
+
+### 고정 검증셋을 학습과 분리하고 학습의 val 로 쓰기 (`rebuild_valid_disjoint.py`, `set_train_val.py`, 2026-10-01)
+
+고정 검증셋은 학습 폴더(train)와 겹치지 않아야 한다. ★ 대표는 학습에 남기므로 검증셋에서는 뺀다.
+
+- `rebuild_valid_disjoint.py VALID --train TRAIN --cands <상한 전 학습 폴더> --sources <검수 데이터셋> --pools <이미지 폴더>` —
+  VALID 에서 TRAIN 에 있는 프레임을 빼고, 뺀 만큼 코드당 최대 5장을 비학습 프레임으로 채운다 (① 상한에서 빠진 검수 프레임 → ② 정제 제외 확정 프레임).
+  새로 넣은 프레임은 보류 + 메모로 표시되므로 검수 PC 에서 확인한다. 후보가 없는 코드는 빠진다.
+- `edge_gate_autolabel.py DATASET` — 라벨 없는 가장자리 조각을 현재 5클래스 모델로 검출해 같은 규칙에 통과시킨다 (10% 미만 → none 추가,
+  10% 이상 → 추가 안 함). 학습·검증 폴더 양쪽에 돌리고 `edge_gate_report.csv` 가 남는다. 새 폴더를 만들 때마다 다시 돌린다.
+- 학습·검증 생성 스크립트는 가장자리 제품 규칙을 적용한다: 인스턴스가 둘 이상이면 중심에 가장 가까운 인스턴스가 가운데 제품이고, 나머지 중 면적이
+  가운데 제품의 10% 미만이면 none 으로 바꾼다 (`codes_to_sort5.edge_none_rule`, 10-01 밤 30%→10%).
+- 검증셋 생성·반영 스크립트는 프레임 코드와 같은 코드의 인스턴스가 둘 이상이면 가장 넓은 것만 남긴다 (`codes_to_sort5.drop_same_code_dups`, 가장자리에 잘린
+  같은 제품은 평가에서 뺌). 다른 코드·none 인스턴스는 그대로 둔다.
+- `set_train_val.py TRAIN --valid VALID` — 학습 폴더의 val 분할을 train 에 합치고 dataset.yaml 의 val 을 검증 폴더로 돌린다. 겹치는 프레임이 있으면 멈춘다.
+  이후 학습(train_codes.py·exp/train_sort5_aug.py)은 이 dataset.yaml 을 그대로 쓰면 되고, 학습 중 val 수치가 곧 고정 검증 수치다.
+
+```bash
+python scripts/rebuild_valid_disjoint.py ~/jhw/data/SL/yolo26_dataset/valid_class144 --train ~/jhw/data/SL/yolo26_dataset/train_class137 \
+    --cands ~/jhw/data/SL/yolo26_dataset/train_class139 --sources ~/jhw/data/SL/field_new_20260923 ~/jhw/data/SL/field_data_hole_all_20260921 \
+    --pools ~/jhw/data/SL_under_predict_auto ~/jhw/data/SL_under_predict ~/jhw/data/SL_under_predict_yolo1 --out-root ~/jhw/data/SL/yolo26_dataset
+python scripts/set_train_val.py ~/jhw/data/SL/yolo26_dataset/train_class137 --valid ~/jhw/data/SL/yolo26_dataset/valid_class130
 ```
 
 ### 제품코드별 장수 상한 (`scripts/cap_per_code.py`, 2026-09-29)
