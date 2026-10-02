@@ -15,6 +15,7 @@ cd ~/yolo_mask_reviewer
 python3 -m mask_reviewer stats  DATASET    # 검수 현황 (제품코드별 확정·자동·대표 수)
 python3 -m mask_reviewer export DATASET OUT --status ok --val 0.1   # GUI 없이 내보내기
 python3 -m mask_reviewer propagate DATASET [--codes A,B] [--max-exemplars 3]   # GUI 없이 SAM2 대표 전파
+python3 -m mask_reviewer propagate-holes DATASET [--codes A,B] [--no-refine]   # GUI 없이 대표 구멍 전파 (정합 + SAM2 다듬기)
 python3 -m mask_reviewer rescore DATASET   # 기존 자동 라벨의 원본 대비 변화량(diff) 소급 계산 (툴을 닫고 실행)
 ```
 
@@ -115,6 +116,42 @@ python scripts/propagate_holes.py ~/jhw/data/SL/field_all_<날짜> --exemplars-f
 
 대표가 없는 제품은 `scripts/relabel_with_model.py DS --model <구멍 모델> --map-codes` 로 모델 추론을 자동 라벨로 넣는다
 (`--map-codes`: 12자리 코드 클래스 모델의 검출을 obj 이름의 부품 종류로 대분류 5클래스에 맞춘다).
+
+### 대표 구멍 전파 — 정합으로 구멍만 옮기기 (`자동 → 대표 구멍 전파…`, Ctrl+Shift+P, 2026-10-02)
+
+바깥 윤곽은 이미 검수된 프레임에서 **구멍만** 다시 뚫을 때 쓴다 (`recheck_holes_20261002` 같은 구멍 재검수 폴더). SAM2 영상 전파는
+1024 입력의 저해상 로짓을 거쳐 수십 px 구멍이 뭉개지므로, 여기서는 SAM2 에 기대지 않고 대표를 **기하 정합**해 구멍을 옮긴다
+(`mask_reviewer/holes.py`, CLI `python -m mask_reviewer propagate-holes DS`).
+
+1. 대표(★) 인스턴스(구멍 채움)를 대상 인스턴스(현재 라벨, 구멍 채움)에 회전·배율·이동(유사변환)으로 정합한다 — 마스크 IoU 최대.
+   5° 전수 탐색(반해상도) 뒤 각도·이동·배율을 미세 조정한다 (장당 약 0.1초). 같은 클래스의 대표 인스턴스 중 정합 IoU 가 가장 큰 것을 쓴다.
+2. 정합된 대표의 구멍을 대상 안으로 옮긴다. **대상의 기존 구멍은 버리고 대표 기준으로 다시 뚫는다**. 바깥 윤곽은 그대로다.
+   대표에 같은 클래스 인스턴스가 없는 대상 인스턴스(none 등)는 손대지 않는다.
+3. (기본 켬) 구멍마다 대상 이미지의 작은 창을 잘라 SAM2 이미지 예측기(박스 + 중심점)로 경계를 다듬는다. 창을 자르면 작은 구멍도
+   1024 입력에서 크게 보인다. 다듬은 결과가 옮긴 구멍과 IoU 0.3 미만이거나 면적비가 0.4\~2.5 를 벗어나면 옮긴 구멍을 그대로 둔다.
+   다이얼로그의 체크를 끄거나 CLI `--no-refine` 으로 생략할 수 있다.
+
+결과는 `labels_auto/` 에 쓰고(`keep_holes` 다리 폴리곤) **판정은 보류 그대로** 둔다. state 에 `auto.source = holes-align`,
+`auto.score` = 정합 IoU(인스턴스 최소), `cross_iou`, `holes`(인스턴스별 구멍 수), 메모 `auto holes-align iou=… holes=[…] refined=k/n`.
+정합 IoU 가 0.85 미만이면 메모에 `align-low` 가 붙는다 (뒤집힌 제품·다른 자세). 목록 정렬 "자동 점수 낮은 순" 으로 그런 장부터 본다.
+대상은 SAM2 대표 전파와 같다 (보류이고 편집본·대표가 아닌 프레임). 대표는 상태와 무관하게 ★ 전부를 쓰므로 **대표를 먼저 검수해 구멍을
+확정한 뒤** 실행한다.
+
+2026-10-02 검증 (recheck_holes_20261002, 대표 train_class137 ★, 기존 라벨 구멍 수가 최빈값과 같은 프레임 202 인스턴스): 정합 IoU
+평균 0.98 (최소 0.66, 뒤집힌 1장), 옮긴 구멍과 기존 라벨 구멍의 IoU 중앙값 0.93 (다듬기 전 0.925). 구멍 수가 다른 경우는 대부분
+기존 라벨에 빠진 작은 구멍이 새로 뚫린 것이었다. 속도는 장당 약 1.3초(다듬기 포함, RTX PRO 5000).
+
+**구멍 재검수 흐름** (`recheck_holes_20261002`):
+
+```bash
+# 1. 학습·검증 폴더의 ★ 대표를 재검수 폴더에 표시(없으면 이미지·라벨·manifest 행 추가) — 대표 없는 코드는 끝에 출력
+python scripts/add_exemplars_to_review.py ~/jhw/data/SL/yolo26_dataset/recheck_holes_20261002 \
+    --from ~/jhw/data/SL/yolo26_dataset/train_class137 ~/jhw/data/SL/yolo26_dataset/valid_class130
+# 2. 검수 PC: 필터 "대표" 로 ★ 프레임부터 구멍을 확정 (대표 없는 코드는 잘 맞는 장을 R 로 지정)
+# 3. 검수 PC: 자동 → 대표 구멍 전파… (Ctrl+Shift+P) → 나머지 프레임을 자동 라벨 보고 확정
+```
+
+대표가 이미 폴더에 있으면 state 에 ★ 만 켜고 메모 앞에 `★ 대표(<출처>) 먼저 검수` 를 붙인다 (판정은 그대로).
 
 ### 제품 코드 자동 재배열 (`scripts/reassign_codes.py`)
 

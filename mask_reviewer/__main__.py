@@ -4,6 +4,7 @@
   python -m mask_reviewer export DATASET_DIR OUT_DIR [옵션]   GUI 없이 내보내기
   python -m mask_reviewer stats DATASET_DIR                   검수 현황 출력
   python -m mask_reviewer propagate DATASET_DIR [옵션]        대표 → 보류 이미지 SAM2 전파 (GUI 없이)
+  python -m mask_reviewer propagate-holes DATASET_DIR [옵션]  대표의 관통 구멍만 보류 이미지에 옮김 (정합 + SAM2 다듬기, GUI 없이)
   python -m mask_reviewer rescore DATASET_DIR                 기존 자동 라벨의 원본 대비 변화량(diff) 소급 계산
 """
 import argparse
@@ -18,7 +19,7 @@ if hasattr(signal, 'SIGUSR1'):
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
-    if argv and argv[0] in ('export', 'stats', 'propagate', 'rescore'):
+    if argv and argv[0] in ('export', 'stats', 'propagate', 'propagate-holes', 'rescore'):
         return _cli(argv)
     ap = argparse.ArgumentParser(description='YOLO-seg 마스크 검수 GUI')
     ap.add_argument('dataset', nargs='?', help='images/ labels/ 가 있는 데이터셋 폴더')
@@ -57,6 +58,15 @@ def _cli(argv):
     pp.add_argument('--include-empty-edited', action='store_true',
                     help='편집본이 비어 있는 보류 이미지도 포함 (그 빈 편집본은 삭제)')
     pp.add_argument('--ckpt', default=None, help='SAM2 체크포인트 (.pt)')
+    ph = sub.add_parser('propagate-holes', help='대표(★)의 관통 구멍을 같은 제품의 보류 이미지에 옮김 (바깥 윤곽은 현재 라벨 유지) → labels_auto/')
+    ph.add_argument('dataset')
+    ph.add_argument('--codes', default='', help='제품코드 쉼표 목록 (기본: 대표가 있는 모든 제품)')
+    ph.add_argument('--max-exemplars', type=int, default=3)
+    ph.add_argument('--skip-auto', action='store_true', help='이미 자동 라벨이 있는 이미지는 건너뜀')
+    ph.add_argument('--include-empty-edited', action='store_true', help='편집본이 비어 있는 보류 이미지도 포함 (그 빈 편집본은 삭제)')
+    ph.add_argument('--no-refine', action='store_true', help='SAM2 구멍 경계 다듬기를 끔 (정합으로 옮긴 구멍 그대로)')
+    ph.add_argument('--limit', type=int, default=0)
+    ph.add_argument('--ckpt', default=None, help='SAM2 체크포인트 (.pt)')
     rs = sub.add_parser('rescore', help='labels_auto/ 의 자동 라벨마다 원본 대비 변화량(1-IoU)을 계산해 state 에 기록')
     rs.add_argument('dataset')
     a = ap.parse_args(argv)
@@ -81,6 +91,16 @@ def _cli(argv):
         ds2 = Dataset(a.dataset)
         d = sorted(ds2.state.auto(s).get('diff', 0.0) for s in ds2.stems if ds2.has_auto(s))
         print(f'\n{n}장 계산 · 차이 평균 {sum(d) / max(len(d), 1):.3f} · 0.05 이상 {sum(v >= 0.05 for v in d)} · 0.2 이상 {sum(v >= 0.2 for v in d)}')
+        return 0
+    if a.cmd == 'propagate-holes':
+        from .holes import propagate_holes_dataset
+        codes = [c for c in a.codes.split(',') if c] or None
+        r = propagate_holes_dataset(ds, codes, a.max_exemplars, include_auto=not a.skip_auto, refine=not a.no_refine, ckpt=a.ckpt,
+                                    max_targets=a.limit, include_empty_edited=a.include_empty_edited,
+                                    progress=lambda i, n, st, info: print(f'\r{i + 1}/{n} {st} {info}    ', end='', flush=True))
+        print()
+        for k, v in r.items():
+            print(f'{k}: {v}')
         return 0
     if a.cmd == 'propagate':
         from .propagate import propagate_dataset

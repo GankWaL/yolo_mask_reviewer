@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (QAction, QActionGroup, QApplication, QCheckBox, QCo
                              QMainWindow, QMenu, QMessageBox, QProgressDialog, QPushButton, QSlider, QSpinBox,
                              QSplitter, QToolBar, QVBoxLayout, QWidget, QAbstractItemView)
 
-from . import codeclass, maskops, propagate, sam2_helper
+from . import codeclass, holes, maskops, propagate, sam2_helper
 from .canvas import TOOL_KEY, TOOL_LABEL, TOOLS, MaskCanvas, class_color
 from .dataset import LABEL_SOURCE_LABEL, STATUSES, STATUS_LABEL, STATUS_MARK, Dataset, Instance, is_full_code
 from .export import COPY_MODES, export_dataset
@@ -94,11 +94,13 @@ class PropagateWorker(QThread):
     done = pyqtSignal(dict)
     failed = pyqtSignal(str)
 
-    def __init__(self, ds, codes, max_exemplars, include_auto, propagator=None, ckpt=None, include_empty_edited=False):
+    def __init__(self, ds, codes, max_exemplars, include_auto, propagator=None, ckpt=None, include_empty_edited=False,
+                 mode='sam2', refine=True, refiner=None):
         super().__init__()
         self.ds, self.codes, self.max_exemplars, self.include_auto = ds, codes, max_exemplars, include_auto
         self.include_empty_edited = include_empty_edited
         self.propagator, self.ckpt = propagator, ckpt
+        self.mode, self.refine, self.refiner = mode, refine, refiner   # mode 'holes': 대표 구멍 전파 (holes.py), refiner 재사용
         self._stop = False
 
     def stop(self):
@@ -106,6 +108,15 @@ class PropagateWorker(QThread):
 
     def run(self):
         try:
+            if self.mode == 'holes':
+                if self.refine and self.refiner is None:
+                    self.refiner = holes.HoleRefiner(self.ckpt)
+                r = holes.propagate_holes_dataset(self.ds, self.codes, self.max_exemplars, self.include_auto,
+                                                  refiner=self.refiner if self.refine else None, refine=self.refine,
+                                                  progress=self.progress.emit, should_stop=lambda: self._stop,
+                                                  include_empty_edited=self.include_empty_edited)
+                self.done.emit(r)
+                return
             if self.propagator is None:
                 self.propagator = propagate.Sam2Propagator(self.ckpt)
             r = propagate.propagate_dataset(self.ds, self.codes, self.max_exemplars, self.include_auto,
@@ -118,11 +129,14 @@ class PropagateWorker(QThread):
 
 
 class PropagateDialog(QDialog):
-    def __init__(self, parent, ds, code):
+    def __init__(self, parent, ds, code, holes_mode=False):
         super().__init__(parent)
-        self.setWindowTitle('SAM2 대표 전파')
-        self.ds, self.code = ds, code
+        self.setWindowTitle('대표 구멍 전파' if holes_mode else 'SAM2 대표 전파')
+        self.ds, self.code, self.holes_mode = ds, code, holes_mode
         lay = QFormLayout(self)
+        if holes_mode:
+            lay.addRow(QLabel('대표(★)의 관통 구멍을 같은 제품의 보류 이미지에 옮깁니다. 바깥 윤곽은 현재 라벨을 그대로 두고\n'
+                              '대표를 회전·이동으로 정합해 구멍만 바꿉니다 (기존 구멍은 대표 기준으로 다시 뚫림).'))
         self.scope = QComboBox()
         lay.addRow('범위', self.scope)
         self.max_ex = QSpinBox()
@@ -141,6 +155,10 @@ class PropagateDialog(QDialog):
         self.empty_edited.setChecked(n_empty > 0)
         self.empty_edited.toggled.connect(self._fill_scope)
         lay.addRow(self.empty_edited)
+        self.refine = QCheckBox('SAM2 로 구멍 경계 다듬기 (구멍마다 작은 창을 잘라 분할, 옮긴 구멍과 크게 다르면 옮긴 것 유지)')
+        self.refine.setChecked(True)
+        if holes_mode:
+            lay.addRow(self.refine)
         lay.addRow(QLabel('대상: 보류 상태이고 편집본·대표가 아닌 이미지. 결과는 labels_auto/ 에 쓰고 원본은 건드리지 않습니다.'))
         self._fill_scope()
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -164,7 +182,8 @@ class PropagateDialog(QDialog):
 
     def params(self):
         return dict(codes=self.scope.currentData(), max_exemplars=int(self.max_ex.value()),
-                    include_auto=self.redo.isChecked(), include_empty_edited=self.empty_edited.isChecked())
+                    include_auto=self.redo.isChecked(), include_empty_edited=self.empty_edited.isChecked(),
+                    refine=self.refine.isChecked())
 
 
 class MainWindow(QMainWindow):
@@ -186,6 +205,7 @@ class MainWindow(QMainWindow):
         self._thumb_gen = 0        # 데이터셋을 다시 열면 증가 (옛 배치 폐기)
         self._thumb_exec = None
         self.propagator = None     # propagate.Sam2Propagator (전파 후 재사용)
+        self.hole_refiner = None   # holes.HoleRefiner (대표 구멍 전파 후 재사용)
         self._prop_worker = None
         self._build_ui()
         self._build_actions()
@@ -438,6 +458,7 @@ class MainWindow(QMainWindow):
         act('대표 지정/해제', self.toggle_exemplar, 'R', em)
         am = mb.addMenu('자동')
         act('SAM2 대표 전파…', self.run_propagate, 'Ctrl+P', am)
+        act('대표 구멍 전파…', lambda: self.run_propagate(holes_mode=True), 'Ctrl+Shift+P', am)
         act('현재(선택) 이미지 자동 라벨 삭제', self.clear_auto_current, None, am)
         am.addSeparator()
         act('SAM2 체크포인트 선택…', self.choose_sam_checkpoint, None, am)
@@ -1058,31 +1079,33 @@ class MainWindow(QMainWindow):
         self._refresh_info()
 
     # ================================================================ 자동 라벨 (SAM2 대표 전파)
-    def run_propagate(self):
+    def run_propagate(self, holes_mode=False):
+        """holes_mode: 대표의 관통 구멍만 옮기는 전파 (holes.py). 아니면 SAM2 쌍 전파."""
         if self.ds is None or self._prop_worker is not None:
             return
         self.save_current()
+        title = '대표 구멍 전파' if holes_mode else 'SAM2 대표 전파'
         if not self.ds.exemplars():
-            QMessageBox.information(self, 'SAM2 대표 전파', '대표로 지정된 이미지가 없습니다.\n'
+            QMessageBox.information(self, title, '대표로 지정된 이미지가 없습니다.\n'
                                     '제품마다 잘 맞는 라벨 한 장을 골라 ★ 대표 (R) 로 지정한 뒤 실행하세요.')
             return
         if not sam2_helper.available():
             QMessageBox.information(self, 'SAM2 사용 불가', 'torch / sam2 가 설치되어 있지 않습니다.\npip install -r requirements-sam2.txt')
             return
         code = self.ds.code(self.stem) if self.stem else None
-        dlg = PropagateDialog(self, self.ds, code)
+        dlg = PropagateDialog(self, self.ds, code, holes_mode=holes_mode)
         if dlg.exec_() != QDialog.Accepted:
             return
         p = dlg.params()
         if not p['codes'] or not any(self.ds.exemplars(c) for c in p['codes']):
-            QMessageBox.information(self, 'SAM2 대표 전파', '선택한 범위에 대표가 없습니다.')
+            QMessageBox.information(self, title, '선택한 범위에 대표가 없습니다.')
             return
         ckpt = self.settings.value('sam2_ckpt') or sam2_helper.find_checkpoint()
         if not ckpt:
             QMessageBox.information(self, 'SAM2 체크포인트 없음', '자동 → SAM2 체크포인트 선택… 으로 지정하세요.')
             return
-        prog = QProgressDialog('SAM2 모델 로드 중…', '중지', 0, 100, self)
-        prog.setWindowTitle('SAM2 대표 전파')
+        prog = QProgressDialog('SAM2 모델 로드 중…' if not holes_mode or p['refine'] else '준비 중…', '중지', 0, 100, self)
+        prog.setWindowTitle(title)
         prog.setWindowModality(Qt.WindowModal)
         prog.setMinimumDuration(0)
         # 100 에 닿으면 자동으로 reset/hide 되면서 setValue 안의 processEvents 와 겹친다 → 끄고 finish 에서만 닫는다
@@ -1090,7 +1113,8 @@ class MainWindow(QMainWindow):
         prog.setAutoReset(False)
         prog.setValue(0)
         w = PropagateWorker(self.ds, p['codes'], p['max_exemplars'], p['include_auto'], self.propagator, ckpt,
-                            include_empty_edited=p['include_empty_edited'])
+                            include_empty_edited=p['include_empty_edited'],
+                            mode='holes' if holes_mode else 'sam2', refine=p['refine'], refiner=self.hole_refiner)
         self._prop_worker = w
         prog.canceled.connect(w.stop)
 
@@ -1105,6 +1129,7 @@ class MainWindow(QMainWindow):
 
         def _finish(r, err):
             self.propagator = w.propagator
+            self.hole_refiner = w.refiner
             self._prop_worker = None
             try:
                 w.progress.disconnect(on_progress)
@@ -1120,10 +1145,18 @@ class MainWindow(QMainWindow):
             if cur:
                 self.load_stem(cur)
             if err:
-                QMessageBox.warning(self, 'SAM2 대표 전파 실패', err)
+                QMessageBox.warning(self, title + ' 실패', err)
                 return
             per = ', '.join(f'{k} {v}' for k, v in sorted(r['per_code'].items()))
-            QMessageBox.information(self, 'SAM2 대표 전파 완료',
+            if holes_mode:
+                QMessageBox.information(self, title + ' 완료',
+                                        f'{r["n_done"]}/{r["n_jobs"]}장 자동 라벨 작성 ({r["sec"]:.0f}초)\n'
+                                        f'인스턴스 없음 {r["n_empty"]} · 빈 편집본 삭제 {r["n_cleared"]} · 정합 IoU 평균 {r["iou_mean"]:.2f} · '
+                                        f'정합 낮음(<{holes.ALIGN_WARN_IOU}) {r["n_low"]}장 · SAM2 다듬음 {r["n_refined"]} / 옮긴 대로 {r["n_kept"]} 구멍\n{per}\n\n'
+                                        f'판정은 보류 그대로입니다. 목록 정렬을 "자동 점수 낮은 순" 으로 두면 정합이 나쁜 장부터 보입니다. '
+                                        f'Space 로 확정하면 자동 라벨이 그대로 내보내집니다.')
+                return
+            QMessageBox.information(self, title + ' 완료',
                                     f'{r["n_done"]}/{r["n_jobs"]}장 자동 라벨 작성 ({r["sec"]:.0f}초)\n'
                                     f'빈 결과 {r["n_empty"]} · 빈 편집본 삭제 {r["n_cleared"]} · 원본과 차이(1-IoU) 평균 {r["diff_mean"]:.2f} · '
                                     f'0.05 이상 바뀐 장 {r["n_changed"]}\n{per}\n\n'
