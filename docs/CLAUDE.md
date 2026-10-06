@@ -26,6 +26,7 @@
 
 ## 학습 규칙 (2026-09-23)
 - YOLO 학습(train_codes.py·train_round.py·exp 스크립트·auto_retrain)은 **강건성 증강을 기본으로 포함**한다: hsv_h 0.03, hsv_s 0.8, hsv_v 0.6, 회전 ±10°, 이동 0.15, 스케일 0.7, copy_paste 0.1, bgr 0.05 + albumentations(Blur·MedianBlur·ToGray·CLAHE 자동). 사무실·현장처럼 조명과 벨트색이 다른 환경에서 마스크가 흔들리지 않게 하기 위함 (yolo_mask_reviewer 환경에 albumentations 설치됨). 12자리 코드 모델은 fliplr 0 유지, 5클래스 모델은 fliplr 0.5.
+- **모자이크 증강은 쓰지 않는다** (`mosaic=0`, `close_mosaic=0`; jhw 2026-10-06). 조각난 제품(가장자리 조각·none)을 검출할 때 모자이크가 오히려 성능을 떨어뜨리는 요인으로 판단됨. 새 학습 명령·스크립트에도 똑같이 적용한다.
 
 ## 클래스 체계: 제품코드 325 클래스, 대분류 5클래스의 1번은 none (2026-09-29)
 - 검수 데이터셋·학습 데이터의 인스턴스 클래스는 12자리 제품코드다. 클래스 목록은 `yolo26_dataset/codes_20260921/codes_none_20260929.yaml`

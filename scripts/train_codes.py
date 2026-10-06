@@ -7,6 +7,7 @@
   --base     시작 가중치. 기본은 운영 모델(도메인 적응된 백본). 클래스 수가 달라 ultralytics 가 헤드를 새로 만든다.
 train_round.py 와 달리 클래스 이름 일치 검사를 하지 않는다. fliplr=0 은 바꾸지 않는다.
 강건성 증강(hsv_h 0.03·hsv_s 0.8·hsv_v 0.6·회전 10°·이동 0.15·스케일 0.7·copy_paste 0.1·bgr 0.05, albumentations 블러/CLAHE)이 기본이다 (2026-09-23).
+모자이크(mosaic)는 쓰지 않는다 (2026-10-06 jhw): 조각난 제품 검출에 오히려 해롭다고 판단.
 결과: RUNS/<name>/weights/best.pt
 """
 import argparse
@@ -42,7 +43,8 @@ def main():
         data=a.data, epochs=a.epochs, imgsz=a.imgsz, batch=a.batch, device=a.device, workers=a.workers,
         project=a.runs, name=a.name, exist_ok=False,
         optimizer=a.optimizer, lr0=a.lr0, cos_lr=True, warmup_epochs=1.0, warmup_bias_lr=0.0,
-        freeze=a.freeze or None, patience=a.patience, close_mosaic=8,
+        freeze=a.freeze or None, patience=a.patience,
+        mosaic=0.0, close_mosaic=0,  # 모자이크 끔 (2026-10-06 jhw): 조각난 제품 검출 성능을 떨어뜨린다고 판단
         fliplr=0.0, flipud=0.0,  # LH/RH 는 거울상 → 반전 금지
         ## 강건성 기본 증강 (2026-09-23 jhw 규칙): 조명·벨트색·자세 변화에 과적합하지 않도록 항상 포함
         hsv_h=0.03, hsv_s=0.8, hsv_v=0.6, degrees=10.0, translate=0.15, scale=0.7, copy_paste=0.1, bgr=0.05,

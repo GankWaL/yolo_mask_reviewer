@@ -12,6 +12,6 @@ data = sys.argv[2] if len(sys.argv) > 2 else '/home/dxr-core-desktop/jhw/data/SL
 name = sys.argv[3] if len(sys.argv) > 3 else 'sort5_y26s_aug_20260923'
 YOLO('yolo26s-seg.pt').train(data=data,
     epochs=40, imgsz=640, batch=16, device=dev, workers=8, project='/home/dxr-core-desktop/jhw/data/SL/runs', name=name, exist_ok=False,
-    optimizer='AdamW', lr0=0.001, cos_lr=True, warmup_epochs=1.0, warmup_bias_lr=0.0, patience=15, close_mosaic=8,
-    hsv_h=0.03, hsv_s=0.8, hsv_v=0.6, degrees=10.0, translate=0.15, scale=0.7, fliplr=0.5, flipud=0.0, mosaic=1.0, copy_paste=0.1, bgr=0.05,
+    optimizer='AdamW', lr0=0.001, cos_lr=True, warmup_epochs=1.0, warmup_bias_lr=0.0, patience=15, close_mosaic=0,
+    hsv_h=0.03, hsv_s=0.8, hsv_v=0.6, degrees=10.0, translate=0.15, scale=0.7, fliplr=0.5, flipud=0.0, mosaic=0.0, copy_paste=0.1, bgr=0.05,  # mosaic 0 (2026-10-06 jhw)
     plots=True, verbose=True)

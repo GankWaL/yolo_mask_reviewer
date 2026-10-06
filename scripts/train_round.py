@@ -114,7 +114,8 @@ def main():
                patience=a.patience, pretrained=True, plots=True, verbose=False,
                optimizer=a.optimizer, warmup_epochs=a.warmup_epochs, warmup_bias_lr=a.warmup_bias_lr,
                ## 강건성 기본 증강 (2026-09-23 jhw 규칙, docs/CLAUDE.md "학습 규칙") — 5클래스 대분류라 fliplr 은 기본(0.5) 유지
-               hsv_h=0.03, hsv_s=0.8, hsv_v=0.6, degrees=10.0, translate=0.15, scale=0.7, copy_paste=0.1, bgr=0.05)
+               hsv_h=0.03, hsv_s=0.8, hsv_v=0.6, degrees=10.0, translate=0.15, scale=0.7, copy_paste=0.1, bgr=0.05,
+               mosaic=0.0, close_mosaic=0)  # 모자이크 끔 (2026-10-06 jhw): 조각난 제품 검출 성능 저하 요인
     best = os.path.join(a.runs, name, 'weights', 'best.pt')
     if not os.path.exists(best):
         sys.exit('best.pt 가 만들어지지 않았습니다')
