@@ -11,6 +11,7 @@
 - 코드를 고쳐 검수 PC 에 반영해야 하면: 사용자가 commit·push 한 뒤 `ssh REVIEW_PC 'cd ~/yolo_mask_reviewer && git pull'`. 검수 PC 에서 GUI 가 떠 있으면 다시 띄워야 반영된다.
 
 ## 환경
+- 현장 인식 PC 는 `ssh SL_perception_PC` (`~/.ssh/config`: 허브 100.66.89.55 포트 2300 포워딩, 사용자 dxr, 키 id_rsa; 2026-10-02 부터. 옛 직결 주소 dxr@100.118.154.63 은 이 PC 에서 닿지 않는다). `field_autolabel.py` 의 `AL_HOST` 와 `~/jhw/data/SL/scripts/fetch_field_data.sh` 의 `FIELD_HOST` 기본값이 이 별칭이다.
 - 이 PC 의 conda 환경은 `yolo_mask_reviewer` 하나다 (GUI + SAM2 + ultralytics 학습·오토라벨). 옛 `pro`/`yolo26` 환경으로 스크립트를 돌리지 않는다. `scripts/*.sh` 의 `PY` 기본값이 이 환경을 가리킨다.
 - GPU 번호는 `CUDA_DEVICE_ORDER=PCI_BUS_ID` 로 nvidia-smi 와 같게 쓴다 (0=RTX PRO 5000 48GB, 1=4070 Ti SUPER 16GB). `~/.bashrc`·crontab·`scripts/*.sh` 에 설정돼 있고 스크립트 `--device` 기본값은 0(PRO 5000). CUDA 기본 순서(FASTEST_FIRST)는 뒤집혀 있으니 환경변수 없이 돌리지 않는다 (2026-09-22).
 - ultralytics 를 다시 설치하면 일반 opencv-python 이 딸려와 PyQt5 와 충돌한다 → headless 로 되돌린다 (`docs/install.md` §3).
@@ -41,7 +42,8 @@
 - **프레임 가장자리에 잘린 이웃 제품** (jhw 2026-10-01): 라벨된 인스턴스가 둘 이상이면 중심에 가장 가까운 것이 가운데 제품이고, 나머지 중
   **면적이 가운데 제품의 10% 미만이면 무조건 none** (30% 에서 10% 로, jhw 2026-10-01 밤) 으로 바꾼다 (`codes_to_sort5.edge_none_rule`, 학습·검증 생성 스크립트가 적용). 30% 이상이면
   라벨된 코드를 유지한다 (30% 이상이면 → 10% 이상이면). 라벨되지 않은 가장자리 조각은 `scripts/edge_gate_autolabel.py` 로 현재 5클래스 모델이 검출해 같은 게이트에 넣는다 —
-  10% 미만이면 none 인스턴스로 추가하고, 10% 이상은 추가하지 않는다 (jhw 2026-10-01). 검증셋에서는 프레임 코드와 **같은 코드**의 인스턴스가 둘 이상이면
+  10% 미만이면 none 인스턴스로 추가하고, 10% 이상은 추가하지 않는다 (jhw 2026-10-01). **이미지 가장자리(3px)에 닿은 조각은 크기와 관계없이
+  none 으로 추가**한다 (jhw 2026-10-06). 확정된 프레임도 대상이다. 검증셋에서는 프레임 코드와 **같은 코드**의 인스턴스가 둘 이상이면
   가장 넓은 것만 남겨 평가에서 뺀다 (`codes_to_sort5.drop_same_code_dups`, 검증셋 생성·반영 스크립트가 적용). **다른 코드나 none 으로 라벨된
   인스턴스는 빼지 않는다** (특히 none 이 섞인 프레임).
 - **학습은 고정 검증셋을 val 로 쓰고, 그 밖의 모든 프레임을 train 으로 쓴다** (jhw 2026-10-01). 학습 폴더를 만든 뒤 `scripts/set_train_val.py TRAIN --valid VALID`

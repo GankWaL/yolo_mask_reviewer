@@ -53,7 +53,7 @@ sys.path.insert(0, TOOL)
 HOME = os.path.expanduser('~')
 E = os.environ.get
 CFG = dict(
-    host=E('AL_HOST', 'dxr@100.118.154.63'),
+    host=E('AL_HOST', 'SL_perception_PC'),   # ~/.ssh/config 별칭: 허브 100.66.89.55:2300 포워딩, 사용자 dxr (2026-10-02, 옛 직결 dxr@100.118.154.63 은 닿지 않음)
     remote=E('AL_REMOTE', 'SL_Inspection_Automation/save_pose_debug'),
     field_dir=E('AL_FIELD', f'{HOME}/jhw/data/SL/field'),
     ds=E('AL_DS', f'{HOME}/jhw/data/SL_under_predict_auto'),
