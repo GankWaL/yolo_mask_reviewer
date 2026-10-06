@@ -4,8 +4,8 @@
   conda activate yolo_mask_reviewer
   python scripts/refine_dataset.py DATASET [--model <현장 YOLO>] [--device 1] [--apply]
 
-프레임마다 유효 라벨(편집본 > 자동 > 원본)의 가장 큰 인스턴스를 보고 아래를 잰다. 하나라도 걸리면 제외.
-  · multi      라벨 인스턴스가 2개 이상 (제품이 여럿 라벨됨)
+프레임마다 유효 라벨(편집본 > 자동 > 원본)의 가장 큰 인스턴스를 보고 아래를 잰다. 하나라도 걸리면 제외. none 인스턴스는 빼고 본다.
+  · multi      라벨 인스턴스가 2개 이상 (제품이 여럿 라벨됨; none 인스턴스는 세지 않음, 2026-10-06)
   · border     마스크가 크롭 경계에 닿음(--border-px 폭 안의 픽셀 ≥ --border-min) → 잘린 형상
   · partial    마스크가 경계 띠(--edge-px 6)에 조금이라도 닿고 면적 / 같은 제품코드의 온전한 프레임 면적 중앙값 < --min-area-ratio(0.95),
                → 일부만 보임 (자세에 따라 면적이 달라지므로 경계에 안 닿으면 비율만으로는 안 뺀다)
@@ -62,6 +62,9 @@ def main():
     for i, s in enumerate(stems):
         img, insts = ds.load(s)
         h, w = img.shape[:2]
+        # none(제품이 아닌 가장자리 조각 등) 인스턴스는 세지 않는다 — 가장자리 제품 규칙(10% 미만 → none)으로 라벨된 프레임은
+        # 학습에 쓰므로 multi 로 빼지 않는다 (2026-10-06). 이웃 검사(neighbor)는 그대로 모델 재검출로 본다.
+        insts = [i for i in insts if ds.names.get(i.cls) != 'none']
         if not insts:
             info[s] = dict(n_inst=0)
             continue
