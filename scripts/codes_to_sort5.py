@@ -24,7 +24,7 @@ from build_holes_review import OBJ_DIR  # noqa: E402
 from reassign_codes import obj_class  # noqa: E402
 
 NAMES = ['b_cvr', 'none', 'h_cvr', 'hsg', 'scalp']
-NONE_CODES = ('none', 'gate')   # 검수에서 제품이 아니라고 표시한 프레임의 코드 (대소문자 무시)
+NONE_CODES = ('none', 'nonecls', 'gate')   # 검수에서 제품이 아니라고 표시한 프레임의 코드 (대소문자 무시; nonecls = SLIA §71 none 클래스 드랍 캡처, 2026-10-08)
 
 
 def major_map():

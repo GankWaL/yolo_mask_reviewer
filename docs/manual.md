@@ -259,10 +259,14 @@ python scripts/eval_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class130 <모델
 
 `eval_valid.py` 는 모델 클래스 수로 5클래스(`sort5/`)·제품코드 폴더를 고르고, 클래스 목록이 다른 옛 모델도 이름으로 맞춰 평가한다.
 
+구멍 성능은 mAP 에 거의 안 잡히므로 `scripts/eval_holes.py VALID 모델.pt …` 로 따로 잰다 (2026-10-08): 정답 인스턴스와 예측 마스크를 IoU 0.5 로 짝지은 뒤
+정답 구멍(내부 윤곽)마다 예측 마스크에 그 자리가 비어 있는지(50% 이상) 세어 **등가 지름 구간별 재현율**, 예측 구멍의 정밀도, 구멍 합집합 IoU 를 낸다.
+`--imgsz` 로 추론 해상도만 바꿔 볼 수 있다. 결과는 `train_results.md` 의 구멍 표에 적는다.
+
 ### none 클래스 프레임 추가 (`scripts/add_none_frames.py`, 2026-09-29)
 
 대분류 5클래스의 1번은 cap 이 아니라 **none**(제품이 아닌 물체: 게이트 조각·상자 등)이다. 제품이 아닌 물체에 제품 마스크가 나오는 것을 줄이려고
-검수에서 제품코드를 `gate`·`none` 으로 바꿔 제외한 프레임을 none 으로 학습에 넣는다.
+검수에서 제품코드를 `gate`·`none` 으로 바꿔 제외한 프레임을 none 으로 학습에 넣는다. 현장 nodet 캡처의 새 사유 `nonecls`(검출이 전부 none 클래스라 버려진 프레임, SLIA §71 2026-10-08)도 같은 "제품 아님" 코드로 다룬다 (`codes_to_sort5.NONE_CODES`).
 
 - 후보가 `--n`(300)보다 많으면 프레임 전체의 DINOv2 임베딩으로 외형이 고르게 남도록 고른다. 10장마다 1장이 val.
 - 검수 라벨은 물체 일부에만 있는 경우가 많다. 모델(`--model`, 기본 운영 5클래스 모델)이 찾은 마스크 중 기존 라벨과 안 겹치는 것도 none 으로 넣는다.
@@ -344,7 +348,7 @@ python scripts/cap_per_code.py ~/jhw/data/SL/yolo26_dataset/train_class139 --out
 4. **내보내기** (Ctrl+E, 확정만, val 비율 0.1 이상) → **재학습** (같은 환경, install.md §3):
    ```bash
    conda activate yolo_mask_reviewer
-   python scripts/train_round.py OUT_DIR                       # 기준: SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt
+   python scripts/train_round.py OUT_DIR                       # 기준: SL_Inspection_Automation/models/yolo26s_best_20261007_aug3.pt
    python scripts/train_round.py OUT_DIR --extra-data /path/원본학습셋/data.yaml --epochs 30   # 원본 학습셋과 함께 (권장)
    ```
    결과는 `runs/round_<일시>/<기준 모델 이름>_round_<날짜>.pt`. 검수분만으로 학습하면 다른 제품을 잊을 수 있어
@@ -406,7 +410,7 @@ python scripts/field_autolabel.py run 20260919  # 날짜 지정 / fetch·collect
 */30 * * * * ~/jhw/yolo_mask_reviewer/scripts/field_autolabel.sh   # crontab (30분 주기)
 ```
 
-1. **fetch** — 현장 PC `save_pose_debug/<날짜>/` 에서 실패 프레임만(코드 raw 인데 json 없음 = fitfail, `nodet_*` = 검출 없음) rsync. 인식기가 `<stem>_skip.json` 으로 표시한 프레임(언로딩 오류·CAP, SLIA §21-cc)은 받지 않는다.
+1. **fetch** — 현장 PC `save_pose_debug/<날짜>/` 에서 실패 프레임만(코드 raw 인데 json 없음 = fitfail, `nodet_*` = 검출 없음, 사유 `none`·`nonecls`·`gate`) rsync. 인식기가 `<stem>_skip.json` 으로 표시한 프레임(언로딩 오류·CAP, SLIA §21-cc)은 받지 않는다.
    2분 이내 파일은 건너뛰고(처리 중), 받은 것은 다시 받지 않는다. 성공 프레임·overlay 는 받지 않는다 (하루 51GB → 실패분 약 5GB).
 2. **collect** — `collect_yolo_hard_cases.py` 를 이 PC 에서 돌려(현장 GPU 를 쓰지 않음) 누적 데이터셋 `~/jhw/data/SL_under_predict_auto/` 에 추가.
    검수 PC 에서 이미 본 stem(`SL_under_predict/`·`field/SL_under_predict_field/` manifest)은 뺀다. 사이클당 제품별 `--max-per-code`(기본 30) + (날짜, 제품) 누적 상한 `AL_DAILY_CAP`(60, 시간 균등) — 시간 균등 샘플이 사이클마다 달라져 무한히 늘지 않게.
@@ -467,7 +471,7 @@ python scripts/auto_retrain.py --status    # current.pt 와 이력
 
 1. **스냅샷** — `SL_under_predict_auto_yolo/` 를 field_autolabel 잠금(flock) 아래 하드링크 복사해 학습 중 덮어쓰기를 막는다. stem 목록 해시가 직전과 같으면 건너뜀.
 2. **학습** — `train_round.py`: 검수 확정 `SL_under_predict_yolo1` + 리허설(18일·신규 제품) + 스냅샷, base = `~/jhw/data/SL/retrain/current.pt`
-   (처음엔 `models/yolo26s_best_20260929_aug.pt`), freeze 0 · AdamW lr0 1e-4 · 15 epoch. 결과 `runs/auto_<TAG>/`.
+   (처음엔 `models/yolo26s_best_20261007_aug3.pt`), freeze 0 · AdamW lr0 1e-4 · 15 epoch. 결과 `runs/auto_<TAG>/`.
 3. **게이트** — `eval_gates.py` base = current.pt 대비: ① 18일 게이트셋 보존(top-1 IoU≥0.95 비율) ≥ 0.90, ② 19일 신규 val 87장 평균 IoU 가 base 보다 0.01 이상 안 떨어짐.
 4. **승격** — 통과하면 `current.pt` 심볼릭링크를 새 best.pt 로 바꾼다. 다음 재학습의 base 이자 field_autolabel 의 후보 YOLO(`AL_CAND_MODEL` 기본)가 된다.
    실패하면 유지. **현장 적용(models/ 등록, main() 교체)은 자동으로 하지 않는다** — `retrain/history.csv` 와 `gate_<TAG>.md` 를 보고 사람이 결정.

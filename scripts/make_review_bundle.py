@@ -82,7 +82,7 @@ def main():
                 if pair_cnt[pair] > a.per_pair:            # 같은 (현장 코드 → 닮은 대표 코드) 쌍은 표본만
                     continue
                 add(au, s, 'C-코드불일치', f'외형이 {e.get("ref_code", "?")} 대표와 더 비슷함 (현장 코드 {au.code(s)}) — 언로딩 오류·오인식 의심; 자동 판정 {st}: {note}')
-            elif st == 'reject' and au.code(s) not in ('none', 'gate', '') and note.startswith('auto-exclude'):
+            elif st == 'reject' and au.code(s) not in ('none', 'nonecls', 'gate', '') and note.startswith('auto-exclude'):
                 add(au, s, 'C-자동제외(코드있음)', f'뒤집힘·상자 등 의심으로 자동 제외 — 맞으면 그대로, 아니면 확정: {note}')
             elif st == 'pending':
                 add(au, s, 'C-보류', f'자동 판정 보류: {note}')

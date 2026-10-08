@@ -65,10 +65,10 @@ CFG = dict(
     ref_state=E('AL_REF_STATE', f'{HOME}/jhw/data/SL_under_predict/review_state.json'),   # 검수 PC 의 실제 판정 (있으면 우선)
     exemplars=E('AL_EXEMPLARS', f'{HOME}/jhw/data/SL/exemplars'),
     collector=E('AL_COLLECTOR', f'{HOME}/jhw/SL_Inspection_Automation/core_utils/collect_yolo_hard_cases.py'),
-    field_model=E('AL_FIELD_MODEL', f'{HOME}/jhw/SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt'),   # 2026-09-29 r3 + field_new 합본 증강 학습 모델 (옛 모델은 용량 문제로 삭제)
+    field_model=E('AL_FIELD_MODEL', f'{HOME}/jhw/SL_Inspection_Automation/models/yolo26s_best_20261007_aug3.pt'),   # 2026-09-29 r3 + field_new 합본 증강 학습 모델 (옛 모델은 용량 문제로 삭제)
     cand_model=E('AL_CAND_MODEL', f'{HOME}/jhw/data/SL/retrain/current.pt'
                  if os.path.lexists(f'{HOME}/jhw/data/SL/retrain/current.pt')
-                 else f'{HOME}/jhw/SL_Inspection_Automation/models/yolo26s_best_20260929_aug.pt'),   # auto_retrain 이 승격한 최신 모델
+                 else f'{HOME}/jhw/SL_Inspection_Automation/models/yolo26s_best_20261007_aug3.pt'),   # auto_retrain 이 승격한 최신 모델
     sam_ckpt=E('AL_SAM_CKPT', f'{TOOL}/checkpoints/sam2.1_hiera_tiny.pt'),
     roi=E('AL_ROI', '605,190,685,685'),
     # 잘못 지정된 ★ (뒤집힌 제품 2, 캡 gate 프레임 2) — 검수 PC 에서 ★ 를 고치면 비운다
@@ -625,7 +625,7 @@ def manifest_feats(row, label_path):
     px = float(row.get('top_maskpx') or 0)
     bt, be, ba = border_feats(label_path)
     return [n, min(n, 3), tc, tf, np.log1p(px), bt, be, ba, float(row.get('reason') == 'nodet'),
-            float(row.get('code') in ('none', 'gate'))]
+            float(row.get('code') in ('none', 'nonecls', 'gate'))]
 
 
 def features(rows, root, cache_path=None):
@@ -715,7 +715,7 @@ def refit():
     rep += ['', '| 유형 | 제외 기준 수 | 자동 제외 | 잘못 제외 |', '|---|---|---|---|']
     kinds = collections.defaultdict(lambda: [0, 0, 0])
     for r, yy, pp in zip(rows, y, pred):
-        k = r['code'] if r['code'] in ('none', 'gate') else ('coded ' + r['reason'])
+        k = r['code'] if r['code'] in ('none', 'nonecls', 'gate') else ('coded ' + r['reason'])
         kinds[k][0] += yy == 1
         kinds[k][1] += (yy == 1) and pp
         kinds[k][2] += (yy == 0) and pp
@@ -778,7 +778,7 @@ def build_exemplars(max_per_code=5):
         rds = Dataset(CFG['ref_ds'])
         for st in rds.exemplars():
             code = rds.code(st)
-            if code in ('none', 'gate', '') or rds.state.status(st) != 'ok' or st in CFG['exemplar_drop']:
+            if code in ('none', 'nonecls', 'gate', '') or rds.state.status(st) != 'ok' or st in CFG['exemplar_drop']:
                 continue
             text = rds.label_text(st)
             n = sum(len(l.split()) >= 7 for l in text.splitlines())
@@ -796,7 +796,7 @@ def build_exemplars(max_per_code=5):
     rank = {'reviewed': 0, 'auto': 1, 'original': 2}
     by = collections.defaultdict(list)
     for r in rows:
-        if r.get('status', 'ok') == 'ok' and r['code'] not in ('none', 'gate', '') and starred[r['code']] == 0:
+        if r.get('status', 'ok') == 'ok' and r['code'] not in ('none', 'nonecls', 'gate', '') and starred[r['code']] == 0:
             by[r['code']].append(r)
     for code, lst in by.items():
         lst.sort(key=lambda r: (rank.get(r['label_src'], 3), r['stem']))
