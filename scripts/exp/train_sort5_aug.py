@@ -2,11 +2,12 @@
 """(2번, 2026-09-23) 운영 5클래스 yolo26s 를 증강 강화로 재학습 — 사무실(다른 조명·벨트색)에서의 마스크 불안정 대응.
 기준(sort5_y26s_r3_20260923) 대비 바꾼 것: hsv_h 0.015→0.03, hsv_s 0.7→0.8, hsv_v 0.4→0.6, degrees 0→10, translate 0.1→0.15, scale 0.5→0.7,
 copy_paste 0→0.1, bgr 0→0.05(채널 순서 바꿈), albumentations 설치 시 Blur/MedianBlur/ToGray/CLAHE p=0.01 자동 적용. 데이터·에폭·옵티마이저는 동일.
-  CUDA_DEVICE_ORDER=PCI_BUS_ID python scripts/exp/train_sort5_aug.py [device] [DATA.yaml] [run 이름] [imgsz] [scale]
+  CUDA_DEVICE_ORDER=PCI_BUS_ID python scripts/exp/train_sort5_aug.py [device] [DATA.yaml] [run 이름] [imgsz] [scale] [시작 가중치] [batch]
 DATA.yaml·run 이름을 주면 같은 조건으로 다른 데이터를 학습한다 (2026-09-29 sort5_y26s_aug_r4: r3 + field_new 합본).
 imgsz(기본 640)·scale(기본 0.7)은 작은 구멍 실험용. scale 은 `0.7`(대칭 0.3~1.7) 또는 `0.8,1.7`(절대 범위 min,max) 로 준다.
 2026-10-08 r14: imgsz 1024, scale 0.8,1.7 — 1/4 프로토타입 해상도가 병목이라 확대는 그대로 두고 축소만 0.8 까지로 제한 (jhw; r13 추론 832≈1024×0.8 에서
 10px 미만 구멍 재현율 58% 가 유지되고 640 상당에서는 20% 로 급락). eval_holes.py 로 비교.
+시작 가중치(기본 yolo26s-seg.pt)·batch(기본 16)는 yolo26m/x 비교용 (r14: 26x 는 1024 에서 batch 8).
 """
 import sys
 from ultralytics import YOLO
@@ -16,8 +17,10 @@ name = sys.argv[3] if len(sys.argv) > 3 else 'sort5_y26s_aug_20260923'
 imgsz = int(sys.argv[4]) if len(sys.argv) > 4 else 640
 scale = sys.argv[5] if len(sys.argv) > 5 else '0.7'
 scale = tuple(float(x) for x in scale.split(',')) if ',' in scale else float(scale)
-YOLO('yolo26s-seg.pt').train(data=data,
-    epochs=40, imgsz=imgsz, batch=16, device=dev, workers=8, project='/home/dxr-core-desktop/jhw/data/SL/runs', name=name, exist_ok=False,
+base = sys.argv[6] if len(sys.argv) > 6 else 'yolo26s-seg.pt'
+batch = int(sys.argv[7]) if len(sys.argv) > 7 else 16
+YOLO(base).train(data=data,
+    epochs=40, imgsz=imgsz, batch=batch, device=dev, workers=8, project='/home/dxr-core-desktop/jhw/data/SL/runs', name=name, exist_ok=False,
     optimizer='AdamW', lr0=0.001, cos_lr=True, warmup_epochs=1.0, warmup_bias_lr=0.0, patience=15, close_mosaic=0,
     hsv_h=0.03, hsv_s=0.8, hsv_v=0.6, degrees=10.0, translate=0.15, scale=scale, fliplr=0.5, flipud=0.0, mosaic=0.0, copy_paste=0.1, bgr=0.05,  # mosaic 0 (2026-10-06 jhw)
     plots=True, verbose=True)

@@ -25,6 +25,7 @@ def main():
     ap.add_argument('--name', default='codes_' + dt.datetime.now().strftime('%Y%m%d_%H%M'))
     ap.add_argument('--epochs', type=int, default=40)
     ap.add_argument('--imgsz', type=int, default=640)
+    ap.add_argument('--scale', default='0.7', help="scale 증강: 0.7(대칭 0.3~1.7) 또는 '0.8,1.7'(절대 min,max; 작은 구멍용, 2026-10-08)")
     ap.add_argument('--batch', type=int, default=32)
     ap.add_argument('--lr0', type=float, default=0.001)
     ap.add_argument('--optimizer', default='AdamW')
@@ -39,6 +40,7 @@ def main():
     if a.resume:
         YOLO(os.path.join(a.runs, a.name, 'weights', 'last.pt')).train(resume=True)
         return
+    scale = tuple(float(x) for x in a.scale.split(',')) if ',' in a.scale else float(a.scale)
     YOLO(a.base).train(
         data=a.data, epochs=a.epochs, imgsz=a.imgsz, batch=a.batch, device=a.device, workers=a.workers,
         project=a.runs, name=a.name, exist_ok=False,
@@ -47,7 +49,7 @@ def main():
         mosaic=0.0, close_mosaic=0,  # 모자이크 끔 (2026-10-06 jhw): 조각난 제품 검출 성능을 떨어뜨린다고 판단
         fliplr=0.0, flipud=0.0,  # LH/RH 는 거울상 → 반전 금지
         ## 강건성 기본 증강 (2026-09-23 jhw 규칙): 조명·벨트색·자세 변화에 과적합하지 않도록 항상 포함
-        hsv_h=0.03, hsv_s=0.8, hsv_v=0.6, degrees=10.0, translate=0.15, scale=0.7, copy_paste=0.1, bgr=0.05,
+        hsv_h=0.03, hsv_s=0.8, hsv_v=0.6, degrees=10.0, translate=0.15, scale=scale, copy_paste=0.1, bgr=0.05,
         plots=True, verbose=True,
     )
 

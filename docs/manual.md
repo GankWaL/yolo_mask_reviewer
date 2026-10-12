@@ -262,6 +262,10 @@ python scripts/eval_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class130 <모델
 구멍 성능은 mAP 에 거의 안 잡히므로 `scripts/eval_holes.py VALID 모델.pt …` 로 따로 잰다 (2026-10-08): 정답 인스턴스와 예측 마스크를 IoU 0.5 로 짝지은 뒤
 정답 구멍(내부 윤곽)마다 예측 마스크에 그 자리가 비어 있는지(50% 이상) 세어 **등가 지름 구간별 재현율**, 예측 구멍의 정밀도, 구멍 합집합 IoU 를 낸다.
 `--imgsz` 로 추론 해상도만 바꿔 볼 수 있다. 결과는 `train_results.md` 의 구멍 표에 적는다.
+작은 구멍은 1/4 프로토타입 해상도가 병목이라 `exp/train_sort5_aug.py … [imgsz] [scale]` 로 학습 해상도와 scale 범위를 바꿔 학습한다
+(r14 = imgsz 1024, scale `0.8,1.7` = 축소는 0.8 까지만·확대는 1.7 유지, jhw 2026-10-08). 1024 로 학습한 모델은 640 추론이 안 되므로 평가·투입 모두 imgsz 를 맞춘다.
+같은 조건의 다른 크기는 `exp/train_sort5_aug.py … 1024 0.8,1.7 <시작 가중치> <batch>`(26x 는 batch 8, 26m 은 GPU 1 에서 batch 4), 제품코드 모델은
+`train_codes.py DATA.yaml --base yolo26x-seg.pt --imgsz 1024 --scale 0.8,1.7 --batch 8` 로 돌린다 (r14 비교: 26s·26m·26x 5클래스 + 26x 제품코드).
 
 ### none 클래스 프레임 추가 (`scripts/add_none_frames.py`, 2026-09-29)
 
