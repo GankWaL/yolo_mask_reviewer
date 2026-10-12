@@ -501,6 +501,16 @@ class MainWindow(QMainWindow):
         self.brush_spin.setSuffix(' px')
         self.brush_spin.valueChanged.connect(self.canvas.set_brush_radius)
         self.toolbar.addWidget(self.brush_spin)
+        self.toolbar.addWidget(QLabel(' 보정 '))
+        self.smooth_spin = QSpinBox()  # 브러시 흔들림 보정 (pulled string)
+        self.smooth_spin.setRange(0, 100)
+        self.smooth_spin.setSingleStep(10)
+        self.smooth_spin.setSuffix(' %')
+        self.smooth_spin.setToolTip('브러시 흔들림 보정. 커서 주위 자홍 원 밖으로 나갈 때만 펜 끝이 끌려오고, 원 안의 흔들림은 무시한다 (0 = 끔)')
+        self.smooth_spin.setValue(int(self.settings.value('brush_smoothing', 0)))
+        self.canvas.set_smoothing(self.smooth_spin.value())
+        self.smooth_spin.valueChanged.connect(self._set_smoothing)
+        self.toolbar.addWidget(self.smooth_spin)
         self.toolbar.addWidget(QLabel(' 완드 허용 '))
         self.wand_spin = QSpinBox()
         self.wand_spin.setRange(1, 120)
@@ -753,6 +763,10 @@ class MainWindow(QMainWindow):
                     it.setIcon(ic)
             elif not it.icon().isNull():
                 it.setIcon(QIcon())
+
+    def _set_smoothing(self, v):
+        self.canvas.set_smoothing(v)
+        self.settings.setValue('brush_smoothing', int(v))
 
     def toggle_thumbs(self):
         on = self.act_thumbs.isChecked()

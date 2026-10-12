@@ -11,6 +11,8 @@ from .dataset import Instance
 TOOLS = ('select', 'brush', 'eraser', 'polygon', 'wand', 'sam', 'vertex', 'cut')
 TOOL_LABEL = {'select': '선택 (V)', 'brush': '브러시 (B)', 'eraser': '지우개 (E)',
               'polygon': '폴리곤 (P)', 'wand': '완드 (M)', 'sam': 'SAM2 (S)', 'vertex': '꼭짓점 (T)', 'cut': '자르기 (K)'}
+SMOOTH_MAX_PX = 60  # 보정 100% 일 때 끈 길이 (화면 px)
+
 TOOL_KEY = {'select': 'V', 'brush': 'B', 'eraser': 'E', 'polygon': 'P', 'wand': 'M', 'sam': 'S', 'vertex': 'T', 'cut': 'K'}
 VERTEX_EPS = 1.2          # 꼭짓점 편집용 외곽선 단순화 (px)
 VERTEX_GRAB_PX = 9        # 꼭짓점 잡기 반경 (화면 px)
@@ -48,6 +50,7 @@ class MaskCanvas(QWidget):
         self.offset = QPointF(0, 0)
         self.tool = 'brush'
         self.brush_radius = 8
+        self.smoothing = 0        # 브러시 흔들림 보정 0~100% (pulled string 끈 길이 = % × SMOOTH_MAX_PX 화면 px)
         self.wand_tol = 20
         self.fill_alpha = 0.45
         self.show_fill = True
@@ -59,6 +62,7 @@ class MaskCanvas(QWidget):
         self._contours = []
         self._drag = None
         self._last_pt = None
+        self._tip = None          # 보정된 펜 끝 (이미지 좌표, float). 커서에 끈으로 묶여 끌려온다
         self._pan_start = None
         self._mouse = None
         # SAM2 프롬프트 상태
@@ -188,6 +192,30 @@ class MaskCanvas(QWidget):
     def set_brush_radius(self, r):
         self.brush_radius = max(1, int(r))
         self.update()
+
+    def set_smoothing(self, v):
+        self.smoothing = min(100, max(0, int(v)))
+        self.update()
+
+    def _leash(self):
+        """끈 길이(이미지 px). 화면 px 기준이라 확대하면 보정이 줄고 축소하면 는다."""
+        return self.smoothing / 100.0 * SMOOTH_MAX_PX / self.scale
+
+    def _pull_tip(self, pos):
+        """pulled string: 커서가 끈 길이보다 멀어진 만큼만 펜 끝을 끌어온다. 끈 안의 흔들림은 무시."""
+        q = self.to_img(QPointF(pos))
+        tx, ty = self._tip
+        dx, dy = q.x() - tx, q.y() - ty
+        dist = (dx * dx + dy * dy) ** 0.5
+        L = self._leash()
+        if dist <= L:
+            return False
+        k = 1.0 - L / dist
+        self._tip = (tx + dx * k, ty + dy * k)
+        return True
+
+    def _tip_xy(self):
+        return int(np.floor(self._tip[0])), int(np.floor(self._tip[1]))
 
     def set_wand_tol(self, t):
         self.wand_tol = max(1, int(t))
@@ -427,6 +455,8 @@ class MaskCanvas(QWidget):
             maskops.brush(inst.mask, (x, y), (x, y), self.brush_radius, add)
             self._drag = add
             self._last_pt = (x, y)
+            q = self.to_img(QPointF(e.pos()))
+            self._tip = (q.x(), q.y())
             self.rebuild()
             return
         if self.tool == 'polygon':
@@ -498,9 +528,13 @@ class MaskCanvas(QWidget):
         x, y = self._img_xy(e.pos())
         self.cursorMoved.emit(x, y)
         if self._drag is not None and 0 <= self.current < len(self.instances):
-            maskops.brush(self.instances[self.current].mask, self._last_pt, (x, y), self.brush_radius, self._drag)
-            self._last_pt = (x, y)
-            self.rebuild()
+            if self._pull_tip(e.pos()):
+                tx, ty = self._tip_xy()
+                maskops.brush(self.instances[self.current].mask, self._last_pt, (tx, ty), self.brush_radius, self._drag)
+                self._last_pt = (tx, ty)
+                self.rebuild()
+            else:
+                self.update()  # 끈 안에서 움직임: 칠하지 않고 끈·원만 다시 그림
         elif self._sam_box_drag is not None:
             w, h = self.image_size()
             self._sam_box_drag = (self._sam_box_drag[0], (min(max(x, 0), w - 1), min(max(y, 0), h - 1)))
@@ -522,8 +556,13 @@ class MaskCanvas(QWidget):
             self.setCursor(Qt.ArrowCursor if self.tool in ('select', 'vertex') else Qt.CrossCursor)  # 꼭짓점 재추적 없이
             return
         if self._drag is not None:
+            if self.smoothing > 0 and 0 <= self.current < len(self.instances):
+                x, y = self._img_xy(e.pos())  # 펜 끝 → 뗀 지점까지 이어 마무리 (catch-up on stroke end)
+                maskops.brush(self.instances[self.current].mask, self._last_pt, (x, y), self.brush_radius, self._drag)
+                self.rebuild()
             self._drag = None
             self._last_pt = None
+            self._tip = None
             self.edited.emit()
             return
         if self._sam_box_drag is not None and e.button() == Qt.LeftButton:
@@ -640,11 +679,22 @@ class MaskCanvas(QWidget):
             self._paint_vertices(p)
         if self._mouse is not None and self.tool in ('brush', 'eraser') and self._pan_start is None:
             r = self.brush_radius * self.scale
+            center = QPointF(self._mouse)
+            if self._drag is not None and self._tip is not None and self.smoothing > 0:
+                center = self.to_widget(QPointF(*self._tip))
+                leash = QColor(255, 0, 255)
+                pen = QPen(leash, 1)
+                pen.setCosmetic(True)
+                p.setPen(pen)
+                p.setBrush(Qt.NoBrush)
+                p.drawLine(center, QPointF(self._mouse))  # 끈
+                L = self._leash() * self.scale
+                p.drawEllipse(QPointF(self._mouse), L, L)  # 이 원 안의 움직임은 칠하지 않는다
             pen = QPen(QColor(255, 255, 255) if self.tool == 'brush' else QColor(255, 120, 120), 1)
             pen.setCosmetic(True)
             p.setPen(pen)
             p.setBrush(Qt.NoBrush)
-            p.drawEllipse(QPointF(self._mouse), r, r)
+            p.drawEllipse(center, r, r)
         p.end()
 
     def _map(self, poly):
