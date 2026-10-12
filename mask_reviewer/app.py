@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import cv2
 import numpy as np
-from PyQt5.QtCore import QSettings, QSize, Qt, QThread, QTimer, pyqtSignal
+from PyQt5.QtCore import QItemSelectionModel, QSettings, QSize, Qt, QThread, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QIcon, QKeySequence, QPixmap
 from PyQt5.QtWidgets import (QAction, QActionGroup, QApplication, QCheckBox, QComboBox, QDialog,
                              QDialogButtonBox, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout,
@@ -1091,7 +1091,9 @@ class MainWindow(QMainWindow):
         if new < 0 or new >= self.list.count():
             self.say('목록 끝')
             return
-        self.list.setCurrentRow(new)
+        # 다중 선택 모드의 setCurrentRow(row) 는 이전 선택을 지우지 않아 일괄 판정 뒤 남은 선택이 다음 판정·코드 변경에 번진다
+        # → 넘어갈 때는 현재 행만 선택
+        self.list.setCurrentRow(new, QItemSelectionModel.ClearAndSelect)
 
     def toggle_exemplar(self):
         if self.ds is None or self.stem is None:
