@@ -470,6 +470,25 @@ python scripts/field_autolabel.py run 20260919  # 날짜 지정 / fetch·collect
 (프레임당 raw+png+json 약 6.4MB)이라 **보존 창이 약 6시간**이다. 30분 cron(사이클 약 2분)이면 한 사이클을 건너뛰어도 사라지기 전에
 본다. 보존 창이 30분 근처로 줄면(촬영량 증가·상한 축소) cron 간격을 줄여야 한다.
 
+### 수집 ROI 가 바뀌었을 때 다시 자르기 (`scripts/recrop_roi.py`, 2026-10-12)
+
+현장 `detector_process_roi` 는 SL Pose Monitor 의 [ROI 설정] 으로 바뀌어 `cam_intrinsics/SL/roi_ui.yaml` 에 저장된다 (2026-09-23 부터
+`628,191,686,686`). 수집 파이프라인의 `AL_ROI` 기본값(`605,190,685,685`)으로 잘린 검수 데이터셋은 이 스크립트로 새 ROI 에 맞춘다.
+
+```bash
+python scripts/recrop_roi.py DS --dry      # 대상·누락만 센다
+python scripts/recrop_roi.py DS            # 기본 --old 605,190,685,685 --new 628,191,686,686 --raw-root ~/jhw/data/SL/field
+CUDA_DEVICE_ORDER=PCI_BUS_ID python scripts/relabel_with_model.py DS --model <오토라벨 모델> --device 1   # 보류 프레임 labels_auto 재추론
+```
+
+- 원본 FHD raw(`field/<날짜>/save_pose_debug/<실행>/<idx>_<코드>_raw.png`, stem 의 `…__` 접두는 무시)에서 새 ROI 로 다시 자른다.
+  **지금 이미지가 raw 의 옛 ROI 자리와 픽셀 단위로 같을 때만** 바꾸고, 다르거나 raw 가 없으면 건너뛰어 `recrop_skipped.csv` 에 남긴다.
+- `labels/`·`labels_auto/`·`labels_reviewed/` 의 폴리곤은 마스크로 그려 옛/새 ROI 차이만큼 옮긴 뒤 다시 폴리곤으로 쓴다 (구멍 유지).
+  새 ROI 밖으로 나간 인스턴스는 사라지고, 새 ROI 에만 들어오는 띠(오른쪽 23px)는 라벨이 없으므로 보류 프레임은 `relabel_with_model.py` 로
+  labels_auto 를 다시 만든다. 확정·편집본은 옮긴 라벨 그대로다.
+- 끝나면 `dataset.yaml` 머리에 기록이 붙는다. 검수 PC 에 올라가 있는 데이터셋이면 `review_sync.sh pull-ref` 로 상태를 먼저 가져온 뒤
+  재크롭하고 `push-bundle` 로 통째로 보낸다 (검수 PC 의 `.thumb_cache/` 는 지워야 섬네일이 새 크롭으로 바뀐다).
+
 ## 자동 재학습 (auto_retrain, 4시간 cron, 2026-09-19)
 
 field_autolabel 이 모은 ok 데이터로 직전 기준 모델에서 이어 파인튜닝하고, 게이트를 통과하면 다음 기준 모델로 승격한다 (`scripts/auto_retrain.py`, env `yolo_mask_reviewer`).
