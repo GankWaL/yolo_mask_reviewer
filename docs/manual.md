@@ -269,6 +269,9 @@ python scripts/eval_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class130 <모델
 `--imgsz` 로 추론 해상도만 바꿔 볼 수 있다. 결과는 `train_results.md` 의 구멍 표에 적는다.
 작은 구멍은 1/4 프로토타입 해상도가 병목이라 `exp/train_sort5_aug.py … [imgsz] [scale]` 로 학습 해상도와 scale 범위를 바꿔 학습한다
 (r14 = imgsz 1024, scale `0.8,1.7` = 축소는 0.8 까지만·확대는 1.7 유지, jhw 2026-10-08). 1024 로 학습한 모델은 640 추론이 안 되므로 평가·투입 모두 imgsz 를 맞춘다.
+
+수집 현황표는 `scripts/training_data_status.py` 로 만든다 (2026-10-12): 제품코드 324종(CAP 제외)마다 학습(`train_current`)·부족분(60 상한)·현장 수집 누적(`SL_under_predict_auto` 비제외)·검증·검수 대기(최신 `field_new_*`)
+·★ 대표 수와 대표 프레임 stem 목록을 코드순 표로 적어 단일 HTML(검색·상태 필터·열 정렬 포함)로 기본 출력 `~/jhw/SL_Inspection_Automation/docs/training_data_status.html` 에 쓴다. 데이터가 바뀌면 다시 돌려 덮어쓴다.
 같은 조건의 다른 크기는 `exp/train_sort5_aug.py … 1024 0.8,1.7 <시작 가중치> <batch>`(26x 는 batch 8, 26m 은 GPU 1 에서 batch 4), 제품코드 모델은
 `train_codes.py DATA.yaml --base yolo26x-seg.pt --imgsz 1024 --scale 0.8,1.7 --batch 8` 로 돌린다 (r14 비교: 26s·26m·26x 5클래스 + 26x 제품코드).
 
