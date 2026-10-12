@@ -4,6 +4,7 @@
   python scripts/training_data_status.py [--out ~/jhw/SL_Inspection_Automation/docs/training_data_status.html]
 
 단일 HTML(검색·상태 필터·열 정렬은 페이지 안의 작은 스크립트). 브라우저로 열면 된다.
+★ 대표 프레임은 라벨 윤곽선을 그린 썸네일(JPEG, 긴 변 --thumb px)을 base64 로 내장해 갤러리로 보여 준다 (클릭하면 확대). 300장 ≈ 5 MB.
 
 기준: 학습 = train_current(train_class<N>, 검수 재지정 코드 반영), 검증 = valid_class<N>, 검수 대기 = field_new_<최신> 의 보류 프레임(exemplar_ref 제외),
 현장 수집 누적 = SL_under_predict_auto 의 비제외 프레임(코드 대응표 반영). 제품코드 목록은 codes_none_20260929.yaml(none 제외 324, dropped CAP 4 는 뺀다).
@@ -18,6 +19,10 @@ import os
 import re
 import sys
 
+import base64
+
+import cv2
+import numpy as np
 import yaml
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -39,6 +44,26 @@ def load_ds(root):
     return rows, st, codes, ex
 
 
+def thumb_b64(img_path, label_path, size, names=None):
+    """라벨 폴리곤 윤곽선을 그린 썸네일 JPEG 의 data URI."""
+    im = cv2.imread(img_path, cv2.IMREAD_COLOR)
+    if im is None:
+        return ''
+    h, w = im.shape[:2]
+    if os.path.exists(label_path):
+        for l in open(label_path, encoding='utf-8'):
+            v = l.split()
+            if len(v) < 7:
+                continue
+            pts = (np.array([float(x) for x in v[1:]], dtype=np.float32).reshape(-1, 2) * [w, h]).astype(np.int32)
+            cv2.polylines(im, [pts], True, (60, 220, 60), 2, cv2.LINE_AA)
+    sc = size / max(h, w)
+    if sc < 1:
+        im = cv2.resize(im, (round(w * sc), round(h * sc)), interpolation=cv2.INTER_AREA)
+    ok, buf = cv2.imencode('.jpg', im, [cv2.IMWRITE_JPEG_QUALITY, 80])
+    return 'data:image/jpeg;base64,' + base64.b64encode(buf.tobytes()).decode('ascii') if ok else ''
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--out', default=f'{H}/jhw/SL_Inspection_Automation/docs/training_data_status.html')
@@ -46,6 +71,7 @@ def main():
     ap.add_argument('--valid', default=sorted(glob.glob(f'{H}/jhw/data/SL/yolo26_dataset/valid_class*'))[-1])
     ap.add_argument('--pending', default=sorted(glob.glob(f'{H}/jhw/data/SL/field_new_*'))[-1])
     ap.add_argument('--auto', default=f'{H}/jhw/data/SL_under_predict_auto')
+    ap.add_argument('--thumb', type=int, default=384, help='대표 썸네일 긴 변 px (0 = 이미지 없이 stem 만)')
     ap.add_argument('--codes', default=f'{H}/jhw/data/SL/yolo26_dataset/codes_20260921/codes_none_20260929.yaml')
     a = ap.parse_args()
 
@@ -116,9 +142,22 @@ def main():
     STATUS_CLS = {'충족': 'ok', '부족': 'short', '수집만': 'coll', '미수집': 'none'}
     code_rows = [(STATUS_CLS[r['status']], [r['code'], r['sort'], esc(r['name']), r['status'], r['train'], r['need'], r['auto'], r['valid'], r['pending'],
                   f'{r["cand"]}/{r["refined"]}', r['after'], r['ex']]) for r in sorted(rows, key=lambda r: r['code'])]
-    ex_rows = [[r['code'], r['sort'], r['ex'], '<br>'.join(f'<code>{esc(s)}</code>' for s in exem_stems[r['code']])]
-               for r in sorted(rows, key=lambda r: r['code']) if r['ex']]
-    none_ex = ''.join(f'<code>{esc(s)}</code> ' for s in exem_stems.get('none', []))
+    troot = os.path.realpath(a.train)
+    tman = {r['stem']: r for r in tr_rows}
+    def fig(stem):
+        sp = tman.get(stem, {}).get('split', 'train')
+        src = thumb_b64(f'{troot}/images/{sp}/{stem}.png', f'{troot}/labels/{sp}/{stem}.txt', a.thumb) if a.thumb else ''
+        img = f'<img src="{src}" loading="lazy" alt="{esc(stem)}">' if src else ''
+        return f'<figure>{img}<figcaption title="{esc(stem)}">{esc(stem.split("__")[-1])}</figcaption></figure>'
+    gal = []
+    for r in sorted(rows, key=lambda r: r['code']):
+        if r['ex']:
+            gal.append(f'<section class="exgrp" data-code="{r["code"]}"><h3>{r["code"]} <small>{r["sort"]} · {esc(r["name"])} · ★ {r["ex"]} · 학습 {r["train"]}</small></h3>'
+                       f'<div class="gal">{"".join(fig(s) for s in exem_stems[r["code"]])}</div></section>')
+    if exem_stems.get('none'):
+        gal.append(f'<section class="exgrp" data-code="none"><h3>none <small>제품 아님(게이트 조각 등) · ★ {len(exem_stems["none"])}</small></h3>'
+                   f'<div class="gal">{"".join(fig(s) for s in exem_stems["none"])}</div></section>')
+    gallery = '\n'.join(gal)
     html = f"""<!doctype html>
 <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>학습 데이터 수집 현황 {today}</title>
@@ -132,6 +171,10 @@ th{{background:var(--head);position:sticky;top:0;cursor:pointer;user-select:none
 td:nth-child(n+5){{text-align:right}} table.kv td,table.kv th{{text-align:left}} table.ex td{{white-space:normal}} table.ex td:nth-child(n+5){{text-align:left}} table.ex td:nth-child(3){{text-align:right}}
 tr.ok td:nth-child(4){{background:var(--ok)}} tr.short td:nth-child(4){{background:var(--short)}} tr.coll td:nth-child(4){{background:var(--coll)}} tr.none td:nth-child(4){{background:var(--none)}}
 code{{font-size:12px;background:var(--head);padding:1px 4px;border-radius:3px}} .wrap{{overflow-x:auto}}
+.exgrp{{margin:14px 0 6px}} .exgrp h3{{font-size:15px;margin:6px 0}} .exgrp h3 small{{color:var(--mute);font-weight:normal}} .gal{{display:flex;flex-wrap:wrap;gap:8px}}
+figure{{margin:0;width:192px}} figure img{{width:192px;height:192px;object-fit:contain;background:#000;border:1px solid var(--line);border-radius:4px;cursor:zoom-in;display:block}}
+figcaption{{font-size:11px;color:var(--mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}}
+#lb{{position:fixed;inset:0;background:rgba(0,0,0,.85);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9;cursor:zoom-out}} #lb[hidden]{{display:none}} #lb img{{max-width:92vw;max-height:88vh;image-rendering:auto}} .lbcap{{color:#eee;font-size:13px;margin-top:8px}}
 .bar{{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:8px 0}} input,select{{font:inherit;padding:4px 8px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--fg)}}
 .grp{{display:inline-flex;gap:6px;align-items:center;padding:2px 8px;border:1px solid var(--line);border-radius:4px}} .grp label{{cursor:pointer}} .grp label span{{padding:0 6px;border-radius:3px}} button{{font:inherit;padding:4px 10px;border:1px solid var(--line);border-radius:4px;background:var(--head);color:var(--fg);cursor:pointer}} .cnt{{color:var(--mute)}} #shown b{{color:var(--fg)}}
 </style></head><body><main>
@@ -157,14 +200,14 @@ code{{font-size:12px;background:var(--head);padding:1px 4px;border-radius:3px}} 
 <span class="cnt" id="shown"></span></div>
 <div class="wrap">{tbl(['제품코드', '대분류', '제품명', '상태', '학습', '부족', '수집 누적', '검증', '대기', '후보/정제', '반영 후', '★'], code_rows, 'codes', 'codes')}</div>
 <h2>제품코드별 ★ 대표 라벨링 <small class="cnt">({sum(1 for r in rows if r['ex'])}코드, {sum(r['ex'] for r in rows)}장)</small></h2>
-<p class="meta">학습 폴더 <code>{tag(a.train)}</code> 의 review_state.json 에서 exemplar 로 표시된 프레임(stem). 검수 PC 에서 ★ 대표로 표시한 것이며 구멍 전파·SAM2 전파·검증셋 보충의 기준이다. 대표가 없는 코드는 이 표에 없다. 위 검색창이 이 표에도 적용된다.</p>
-<div class="wrap">{tbl(['제품코드', '대분류', '★', '대표 프레임 (stem)'], ex_rows, 'ex', 'ex')}</div>
-{f'<p class="meta">none(제품 아님) 대표 {len(exem_stems["none"])}장: {none_ex}</p>' if exem_stems.get('none') else ''}
+<p class="meta">학습 폴더 <code>{tag(a.train)}</code> 의 review_state.json 에서 exemplar 로 표시된 프레임. 초록 선 = 라벨 폴리곤(구멍 포함). 검수 PC 에서 ★ 대표로 표시한 것이며 구멍 전파·SAM2 전파·검증셋 보충의 기준이다. 대표가 없는 코드는 여기 없다. 위 필터가 같이 적용되고, 이미지를 누르면 크게 본다 (캡션은 원본 stem, 전체 이름은 마우스를 올리면 보인다).</p>
+<div id="ex">{gallery}</div>
+<div id="lb" hidden><img alt=""><div class="lbcap"></div></div>
 <script>
 (function(){{
 const $=id=>document.getElementById(id);
 const q=$('q'),tmin=$('tmin'),tmax=$('tmax'),shown=$('shown');
-const codes=document.querySelector('#codes tbody'),ex=document.querySelector('#ex tbody');
+const codes=document.querySelector('#codes tbody'),exg=document.querySelectorAll('#ex .exgrp');
 const num=t=>parseFloat(String(t).replace(/,/g,''))||0;const SORTS=new Set(['B/CVR','H/CVR','HSG','SCALP']);
 function filt(){{
  const words=q.value.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -177,12 +220,13 @@ function filt(){{
   const ok=words.every(w=>txt.includes(w))&&st.has(c[3].textContent)&&(so.has(c[1].textContent)||!SORTS.has(c[1].textContent))&&train>=lo&&train<=hi
    &&(!fex||exn>0)&&(!fpend||pend>0)&&(!fval||val>0)&&(!fauto||auto>0)&&(!fneed||need>0);
   tr.style.display=ok?'':'none';if(ok){{n++;pass.add(c[0].textContent);sTrain+=train;sNeed+=need;sPend+=pend;sEx+=exn;}}}}
- let ne=0;for(const tr of ex.rows){{const ok=pass.has(tr.cells[0].textContent);tr.style.display=ok?'':'none';if(ok)ne++;}}
- shown.innerHTML='<b>'+n+'</b> / '+codes.rows.length+' 코드 · 학습 '+sTrain.toLocaleString()+' · 부족 '+sNeed.toLocaleString()+' · 대기 '+sPend.toLocaleString()+' · ★ '+sEx+' (대표 표 '+ne+'코드)';}}
+ let ne=0;for(const g of exg){{const c=g.dataset.code;const ok=c==='none'?(words.length===0||'none'.includes(words.join(' '))):pass.has(c);g.style.display=ok?'':'none';if(ok)ne++;}}
+ shown.innerHTML='<b>'+n+'</b> / '+codes.rows.length+' 코드 · 학습 '+sTrain.toLocaleString()+' · 부족 '+sNeed.toLocaleString()+' · 대기 '+sPend.toLocaleString()+' · ★ '+sEx+' (갤러리 '+ne+'코드)';}}
 for(const el of document.querySelectorAll('#filters input'))el.addEventListener(el.type==='checkbox'?'change':'input',filt);
 $('reset').onclick=()=>{{q.value='';tmin.value='';tmax.value='';for(const el of document.querySelectorAll('#filters input[type=checkbox]'))el.checked=el.classList.contains('st')||el.classList.contains('so');filt();}};
 filt();
-for(const t of document.querySelectorAll('table.codes, table.ex')){{const ths=t.tHead.rows[0].cells;for(let i=0;i<ths.length;i++)ths[i].onclick=()=>{{
+const lb=$('lb');document.querySelectorAll('#ex figure img').forEach(im=>im.onclick=()=>{{lb.querySelector('img').src=im.src;lb.querySelector('.lbcap').textContent=im.alt;lb.hidden=false;}});lb.onclick=()=>lb.hidden=true;document.addEventListener('keydown',e=>{{if(e.key==='Escape')lb.hidden=true;}});
+for(const t of document.querySelectorAll('table.codes')){{const ths=t.tHead.rows[0].cells;for(let i=0;i<ths.length;i++)ths[i].onclick=()=>{{
  const asc=!ths[i].classList.contains('s-asc');for(const h of ths)h.classList.remove('s-asc','s-desc');ths[i].classList.add(asc?'s-asc':'s-desc');
  const rows=[...t.tBodies[0].rows];const isnum=rows.every(r=>/^-?[\d,]+(\/[\d,]+)?$/.test(r.cells[i].textContent.trim())||r.cells[i].textContent.trim()==='');
  rows.sort((a,b)=>{{let x=a.cells[i].textContent.trim(),y=b.cells[i].textContent.trim();if(isnum){{x=num(x);y=num(y);return asc?x-y:y-x;}}return asc?x.localeCompare(y):y.localeCompare(x);}});
