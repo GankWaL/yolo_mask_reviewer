@@ -146,6 +146,7 @@ class PropagateDialog(QDialog):
         lay.addRow('대표 최대 사용 수', self.max_ex)
         self.redo = QCheckBox('이미 자동 라벨이 있는 이미지도 다시 계산')
         self.redo.setChecked(True)
+        self.redo.toggled.connect(self._fill_scope)
         lay.addRow(self.redo)
         n_empty = sum(1 for s in ds.stems if ds.state.status(s) == 'pending' and ds.reviewed_is_empty(s)
                       and not ds.state.exemplar(s))
@@ -159,24 +160,47 @@ class PropagateDialog(QDialog):
         self.refine.setChecked(True)
         if holes_mode:
             lay.addRow(self.refine)
-        lay.addRow(QLabel('대상: 보류 상태이고 편집본·대표가 아닌 이미지. 결과는 labels_auto/ 에 쓰고 원본은 건드리지 않습니다.'))
+        lay.addRow(QLabel('대상: 보류 상태이고 편집본·대표가 아닌 이미지 (제품코드를 바꾼 이미지는 바뀐 코드의 대표를 쓴다).\n'
+                          '결과는 labels_auto/ 에 쓰고 원본은 건드리지 않습니다.'))
         self._fill_scope()
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
         lay.addRow(bb)
 
+    @staticmethod
+    def target_summary(ds, codes, include_auto=True, include_empty_edited=False):
+        """codes 의 보류(대표 제외) 장수와 실제 전파 대상 장수, 빠진 이유를 글로. (n_pending, n_targets, 설명)"""
+        codes = set(codes)
+        n_pend = sum(1 for s in ds.stems if ds.code(s) in codes and ds.state.status(s) == 'pending' and not ds.state.exemplar(s))
+        n_all = sum(len(ds.auto_targets(c, include_empty_edited=include_empty_edited)) for c in codes)
+        n_tgt = n_all if include_auto else sum(len(ds.auto_targets(c, include_auto=False, include_empty_edited=include_empty_edited))
+                                               for c in codes)
+        why = []
+        if n_pend - n_all:
+            why.append(f'편집본 {n_pend - n_all}장 제외')
+        if n_all - n_tgt:
+            why.append(f'자동 라벨 있음 {n_all - n_tgt}장 제외')
+        return n_pend, n_tgt, (' · ' + ', '.join(why) if why else '')
+
     def _fill_scope(self):
         ds, code = self.ds, self.code
-        ie = self.empty_edited.isChecked()
+        ie, ia = self.empty_edited.isChecked(), self.redo.isChecked()
         cur = self.scope.currentIndex()
         self.scope.blockSignals(True)
         self.scope.clear()
-        n_cur = len(ds.auto_targets(code, include_empty_edited=ie)) if code and ds.exemplars(code) else 0
         all_codes = sorted({ds.code(s) for s in ds.exemplars()})
-        n_all = sum(len(ds.auto_targets(c, include_empty_edited=ie)) for c in all_codes)
-        self.scope.addItem(f'현재 제품 {code} (대표 {len(ds.exemplars(code)) if code else 0}장 → 보류 {n_cur}장)', [code] if code else [])
-        self.scope.addItem(f'대표가 있는 모든 제품 ({len(all_codes)}종 → 보류 {n_all}장)', all_codes)
+        if not code:
+            cur_text = '현재 제품 없음'
+        elif not ds.exemplars(code):
+            n_pend, _, _ = self.target_summary(ds, [code])
+            cur_text = f'현재 제품 {code} — ★ 대표 없음 (보류 {n_pend}장은 R 로 대표를 지정한 뒤 전파)'
+        else:
+            n_pend, n_tgt, why = self.target_summary(ds, [code], ia, ie)
+            cur_text = f'현재 제품 {code} (대표 {len(ds.exemplars(code))}장 → 보류 {n_pend}장 중 대상 {n_tgt}장{why})'
+        n_pend, n_tgt, why = self.target_summary(ds, all_codes, ia, ie)
+        self.scope.addItem(cur_text, [code] if code else [])
+        self.scope.addItem(f'대표가 있는 모든 제품 ({len(all_codes)}종 → 보류 {n_pend}장 중 대상 {n_tgt}장{why})', all_codes)
         self.scope.setCurrentIndex(max(cur, 0))
         self.scope.blockSignals(False)
 
@@ -1112,7 +1136,15 @@ class MainWindow(QMainWindow):
             return
         p = dlg.params()
         if not p['codes'] or not any(self.ds.exemplars(c) for c in p['codes']):
-            QMessageBox.information(self, title, '선택한 범위에 대표가 없습니다.')
+            n_pend = PropagateDialog.target_summary(self.ds, p['codes'])[0]
+            QMessageBox.information(self, title, f'선택한 범위에 ★ 대표가 없습니다 (보류 {n_pend}장).\n'
+                                    '그 제품의 잘 맞는 이미지 한 장을 R 로 대표 지정한 뒤 다시 실행하세요.')
+            return
+        n_pend, n_tgt, why = PropagateDialog.target_summary(self.ds, p['codes'], p['include_auto'], p['include_empty_edited'])
+        if not n_tgt:
+            QMessageBox.information(self, title, f'전파할 대상이 없습니다 (보류 {n_pend}장{why}).\n'
+                                    '대상은 보류 상태이고 편집본·대표가 아닌 이미지입니다. 편집본이 있는 이미지에 다시 전파하려면 '
+                                    '원본 복원(편집본 삭제) 뒤 실행하고, 제품코드를 바꾼 이미지는 바뀐 코드에 대표가 있어야 합니다.')
             return
         ckpt = self.settings.value('sam2_ckpt') or sam2_helper.find_checkpoint()
         if not ckpt:
