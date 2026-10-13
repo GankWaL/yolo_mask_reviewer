@@ -252,8 +252,8 @@ class MainWindow(QMainWindow):
         ll.setContentsMargins(4, 4, 4, 4)
         fr = QHBoxLayout()
         self.code_filter = QComboBox()
-        self.status_filter = QComboBox()
-        for k, t in (('all', '전체'), ('pending', '보류'), ('ok', '확정'), ('reject', '제외'), ('edited', '편집됨'),
+        self.status_filter = QComboBox()   # 판정 외 속성 필터 (판정은 아래 체크박스)
+        for k, t in (('all', '전체'), ('edited', '편집됨'),
                      ('auto', '자동 라벨'), ('exemplar', '대표'), ('train_exclude', '정제 제외(학습 미사용)'),
                      ('trained', '최근 학습에 사용됨'), ('auto_model', '학습 모델 자동 라벨(보류)')):
             self.status_filter.addItem(t, k)
@@ -263,6 +263,16 @@ class MainWindow(QMainWindow):
         fr.addWidget(self.code_filter, 2)
         fr.addWidget(self.status_filter, 1)
         ll.addLayout(fr)
+        jr = QHBoxLayout()
+        jr.addWidget(QLabel('판정:'))
+        self.status_checks = {}
+        for st in STATUSES:
+            c = QCheckBox(f'{STATUS_MARK[st]} {STATUS_LABEL[st]}')
+            c.setToolTip('체크한 판정만 목록에 보인다 (여러 개 가능). 하나도 체크하지 않으면 전체')
+            jr.addWidget(c)
+            self.status_checks[st] = c
+        jr.addStretch(1)
+        ll.addLayout(jr)
         er = QHBoxLayout()
         er.addWidget(QLabel('제품의 ★ 대표:'))
         self.ex_has = QCheckBox('있음')
@@ -302,6 +312,8 @@ class MainWindow(QMainWindow):
         ll.addWidget(self.progress)
         self.code_filter.currentIndexChanged.connect(self.refresh_list)
         self.status_filter.currentIndexChanged.connect(self.refresh_list)
+        for c in self.status_checks.values():
+            c.toggled.connect(self.refresh_list)
         self.ex_has.toggled.connect(self.refresh_list)
         self.ex_none.toggled.connect(self.refresh_list)
         self.sort_combo.currentIndexChanged.connect(self.refresh_list)
@@ -806,9 +818,12 @@ class MainWindow(QMainWindow):
         q = self.search.text().strip().lower()
         ex_has, ex_none = self.ex_has.isChecked(), self.ex_none.isChecked()
         codes_with_ex = {self.ds.code(s_) for s_ in self.ds.exemplars()} if ex_has != ex_none else None
+        statuses = {k for k, c in self.status_checks.items() if c.isChecked()}   # 비어 있으면 전체
         out = []
         for s in self.ds.stems:
             if code and self.ds.code(s) != code:
+                continue
+            if statuses and self.ds.state.status(s) not in statuses:
                 continue
             if codes_with_ex is not None and ((self.ds.code(s) in codes_with_ex) != ex_has):
                 continue
@@ -831,8 +846,6 @@ class MainWindow(QMainWindow):
                 if not (self.ds.is_auto(s) and str(self.ds.state.auto(s).get('source', '')).startswith('yolo:')
                         and self.ds.state.status(s) == 'pending'):
                     continue
-            elif st != 'all' and self.ds.state.status(s) != st:
-                continue
             if q and q not in s.lower():
                 continue
             out.append(s)

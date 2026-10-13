@@ -176,9 +176,12 @@ def run(ds_src, shot_dir=None):
     w.navigate(-1); w.navigate(-1)
     assert w.stem == s0 and not w.dirty
     # 필터
-    w.status_filter.setCurrentIndex(2)  # 확정
+    w.status_checks['ok'].setChecked(True)   # 판정 체크박스: 확정만
     assert w.list.count() == 1
-    w.status_filter.setCurrentIndex(0)
+    w.status_checks['reject'].setChecked(True)   # 확정 + 제외
+    assert w.list.count() == 2
+    w.status_checks['ok'].setChecked(False); w.status_checks['reject'].setChecked(False)
+    assert w.list.count() == len(w.ds.stems)
     w.code_filter.setCurrentIndex(1)
     assert 0 < w.list.count() < len(w.ds.stems)
     w.code_filter.setCurrentIndex(0)
@@ -219,7 +222,7 @@ def run(ds_src, shot_dir=None):
         tgt = [t for t in w.ds.stems if w.ds.is_auto(t)][0]
         assert w.ds.label_source(tgt) == 'auto' and w.ds.state.auto(tgt)['source'] == 'sam2'
         assert '⟳' in [w.list.item(i).text() for i in range(w.list.count()) if w.list.item(i).data(Qt.UserRole) == tgt][0]
-        w.status_filter.setCurrentIndex(5)  # 자동 라벨
+        w.status_filter.setCurrentIndex(w.status_filter.findData('auto'))  # 자동 라벨
         assert w.list.count() == 3
         w.sort_combo.setCurrentIndex(1)   # 원본과 차이 큰 순
         df = [w.ds.state.auto(w.list.item(i).data(Qt.UserRole))['diff'] for i in range(w.list.count())]
@@ -286,7 +289,7 @@ def run(ds_src, shot_dir=None):
         for t in [t for t in w.ds.stems if w.ds.has_auto(t)]:
             w.ds.clear_auto(t)
         print('propagate smoke OK', r['n_done'])
-    w.status_filter.setCurrentIndex(6)  # 대표
+    w.status_filter.setCurrentIndex(w.status_filter.findData('exemplar'))  # 대표
     assert w.list.count() == 1
     w.status_filter.setCurrentIndex(0)
     goto(ex)
