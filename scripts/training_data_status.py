@@ -69,7 +69,9 @@ def main():
     ap.add_argument('--out', default=f'{H}/jhw/SL_Inspection_Automation/docs/training_data_status.html')
     ap.add_argument('--train', default=f'{H}/jhw/data/SL/yolo26_dataset/train_current')
     ap.add_argument('--valid', default=sorted(glob.glob(f'{H}/jhw/data/SL/yolo26_dataset/valid_class*'))[-1])
-    ap.add_argument('--pending', default=sorted(glob.glob(f'{H}/jhw/data/SL/field_new_*'))[-1])
+    ap.add_argument('--pending', default=sorted(d for d in glob.glob(f'{H}/jhw/data/SL/field_new_[0-9]*')
+                                               if os.path.isdir(d) and re.fullmatch(r'field_new_\d{8}', os.path.basename(d)))[-1],
+                    help='검수 대기 데이터셋 (기본 최신 field_new_<날짜> 폴더; _excess 사이드카·백업 tar 는 제외)')
     ap.add_argument('--auto', default=f'{H}/jhw/data/SL_under_predict_auto')
     ap.add_argument('--thumb', type=int, default=384, help='대표 썸네일 긴 변 px (0 = 이미지 없이 stem 만)')
     ap.add_argument('--codes', default=f'{H}/jhw/data/SL/yolo26_dataset/codes_20260921/codes_none_20260929.yaml')
