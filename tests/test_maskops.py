@@ -135,12 +135,15 @@ def test_dataset_and_export():
         assert s not in ds.auto_targets() and s2 not in ds.auto_targets(include_auto=False)
         ds.clear_auto(s2)
         assert ds.label_source(s2) == 'original' and not ds.state.auto(s2)
-        # 빈 편집본(인스턴스 전부 삭제 후 저장)은 기본 대상에서 빠지고, include_empty_edited 로만 들어온다
-        s3 = ds.stems[3]
+        # 편집본(빈 것이든 사람이 고친 것이든)은 기본 대상에서 빠지고, include_edited 로만 들어온다 (2026-10-15)
+        s3, s4 = ds.stems[3], ds.stems[4]          # 둘 다 보류 (s2 는 위에서 확정이라 대상이 아니다)
         ds.save(s3, [], w2, h2)
-        assert ds.is_edited(s3) and ds.reviewed_is_empty(s3) and not ds.reviewed_is_empty(s2)
-        assert s3 not in ds.auto_targets() and s3 in ds.auto_targets(include_empty_edited=True)
+        ds.save(s4, insts2b, w2, h2)
+        assert ds.is_edited(s3) and ds.reviewed_is_empty(s3) and ds.is_edited(s4) and not ds.reviewed_is_empty(s4)
+        assert s3 not in ds.auto_targets() and s3 in ds.auto_targets(include_edited=True)
+        assert s4 not in ds.auto_targets() and s4 in ds.auto_targets(include_edited=True)
         ds.revert(s3)
+        ds.revert(s4)
         # 층화 분할
         sp = split_stems(ds.stems, ds.code, 0.2, 0)
         assert set(sp.values()) <= {'train', 'val'}

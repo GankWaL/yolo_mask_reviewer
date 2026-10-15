@@ -94,11 +94,11 @@ class PropagateWorker(QThread):
     done = pyqtSignal(dict)
     failed = pyqtSignal(str)
 
-    def __init__(self, ds, codes, max_exemplars, include_auto, propagator=None, ckpt=None, include_empty_edited=False,
+    def __init__(self, ds, codes, max_exemplars, include_auto, propagator=None, ckpt=None, include_edited=False,
                  mode='sam2', refine=True, refiner=None):
         super().__init__()
         self.ds, self.codes, self.max_exemplars, self.include_auto = ds, codes, max_exemplars, include_auto
-        self.include_empty_edited = include_empty_edited
+        self.include_edited = include_edited
         self.propagator, self.ckpt = propagator, ckpt
         self.mode, self.refine, self.refiner = mode, refine, refiner   # mode 'holes': 대표 구멍 전파 (holes.py), refiner 재사용
         self._stop = False
@@ -114,7 +114,7 @@ class PropagateWorker(QThread):
                 r = holes.propagate_holes_dataset(self.ds, self.codes, self.max_exemplars, self.include_auto,
                                                   refiner=self.refiner if self.refine else None, refine=self.refine,
                                                   progress=self.progress.emit, should_stop=lambda: self._stop,
-                                                  include_empty_edited=self.include_empty_edited)
+                                                  include_edited=self.include_edited)
                 self.done.emit(r)
                 return
             if self.propagator is None:
@@ -122,7 +122,7 @@ class PropagateWorker(QThread):
             r = propagate.propagate_dataset(self.ds, self.codes, self.max_exemplars, self.include_auto,
                                             propagator=self.propagator, progress=self.progress.emit,
                                             should_stop=lambda: self._stop,
-                                            include_empty_edited=self.include_empty_edited)
+                                            include_edited=self.include_edited)
             self.done.emit(r)
         except Exception as e:
             self.failed.emit(f'{e}\n{traceback.format_exc()[-800:]}')
@@ -148,19 +148,21 @@ class PropagateDialog(QDialog):
         self.redo.setChecked(True)
         self.redo.toggled.connect(self._fill_scope)
         lay.addRow(self.redo)
-        n_empty = sum(1 for s in ds.stems if ds.state.status(s) == 'pending' and ds.reviewed_is_empty(s)
-                      and not ds.state.exemplar(s))
-        self.empty_edited = QCheckBox(f'비어 있는 편집본을 가진 보류 이미지도 포함 — 그 편집본은 삭제 ({n_empty}장)')
-        self.empty_edited.setToolTip('인스턴스를 모두 지운 뒤 넘어가면 빈 편집본이 남아 자동 라벨보다 우선합니다. '
-                                     '체크하면 그런 보류 이미지도 대상에 넣고 빈 편집본을 지웁니다.')
-        self.empty_edited.setChecked(n_empty > 0)
-        self.empty_edited.toggled.connect(self._fill_scope)
-        lay.addRow(self.empty_edited)
+        edited = [s for s in ds.stems if ds.state.status(s) == 'pending' and ds.is_edited(s) and not ds.state.exemplar(s)]
+        n_empty = sum(1 for s in edited if ds.reviewed_is_empty(s))
+        self.edited = QCheckBox(f'편집본이 있는 보류 이미지도 포함 — 그 편집본은 삭제하고 전파 결과로 대체 '
+                                f'({len(edited)}장, 그중 빈 편집본 {n_empty}장)')
+        self.edited.setToolTip('편집본은 자동 라벨보다 우선하므로 기본 대상에서 빠집니다. 체크하면 편집본이 있는 보류 이미지도 대상에 넣고 '
+                               '그 편집본을 지운 뒤 전파합니다 (사람이 고친 마스크가 사라지니 다시 전파할 이미지만 보류로 두고 실행).\n'
+                               '인스턴스를 모두 지운 뒤 넘어가 남은 빈 편집본만 있으면 기본으로 켜집니다.')
+        self.edited.setChecked(0 < n_empty == len(edited))   # 빈 편집본뿐이면 켜 둔다 (이전 동작), 사람이 고친 편집본이 있으면 끔
+        self.edited.toggled.connect(self._fill_scope)
+        lay.addRow(self.edited)
         self.refine = QCheckBox('SAM2 로 구멍 경계 다듬기 (구멍마다 작은 창을 잘라 분할, 옮긴 구멍과 크게 다르면 옮긴 것 유지)')
         self.refine.setChecked(True)
         if holes_mode:
             lay.addRow(self.refine)
-        lay.addRow(QLabel('대상: 보류 상태이고 편집본·대표가 아닌 이미지 (제품코드를 바꾼 이미지는 바뀐 코드의 대표를 쓴다).\n'
+        lay.addRow(QLabel('대상: 보류 상태이고 대표가 아닌 이미지 — 편집본이 있는 것은 위 체크 때만 (제품코드를 바꾼 이미지는 바뀐 코드의 대표를 쓴다).\n'
                           '결과는 labels_auto/ 에 쓰고 원본은 건드리지 않습니다.'))
         self._fill_scope()
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -169,12 +171,12 @@ class PropagateDialog(QDialog):
         lay.addRow(bb)
 
     @staticmethod
-    def target_summary(ds, codes, include_auto=True, include_empty_edited=False):
+    def target_summary(ds, codes, include_auto=True, include_edited=False):
         """codes 의 보류(대표 제외) 장수와 실제 전파 대상 장수, 빠진 이유를 글로. (n_pending, n_targets, 설명)"""
         codes = set(codes)
         n_pend = sum(1 for s in ds.stems if ds.code(s) in codes and ds.state.status(s) == 'pending' and not ds.state.exemplar(s))
-        n_all = sum(len(ds.auto_targets(c, include_empty_edited=include_empty_edited)) for c in codes)
-        n_tgt = n_all if include_auto else sum(len(ds.auto_targets(c, include_auto=False, include_empty_edited=include_empty_edited))
+        n_all = sum(len(ds.auto_targets(c, include_edited=include_edited)) for c in codes)
+        n_tgt = n_all if include_auto else sum(len(ds.auto_targets(c, include_auto=False, include_edited=include_edited))
                                                for c in codes)
         why = []
         if n_pend - n_all:
@@ -185,7 +187,7 @@ class PropagateDialog(QDialog):
 
     def _fill_scope(self):
         ds, code = self.ds, self.code
-        ie, ia = self.empty_edited.isChecked(), self.redo.isChecked()
+        ie, ia = self.edited.isChecked(), self.redo.isChecked()
         cur = self.scope.currentIndex()
         self.scope.blockSignals(True)
         self.scope.clear()
@@ -206,7 +208,7 @@ class PropagateDialog(QDialog):
 
     def params(self):
         return dict(codes=self.scope.currentData(), max_exemplars=int(self.max_ex.value()),
-                    include_auto=self.redo.isChecked(), include_empty_edited=self.empty_edited.isChecked(),
+                    include_auto=self.redo.isChecked(), include_edited=self.edited.isChecked(),
                     refine=self.refine.isChecked())
 
 
@@ -1155,11 +1157,11 @@ class MainWindow(QMainWindow):
             QMessageBox.information(self, title, f'선택한 범위에 ★ 대표가 없습니다 (보류 {n_pend}장).\n'
                                     '그 제품의 잘 맞는 이미지 한 장을 R 로 대표 지정한 뒤 다시 실행하세요.')
             return
-        n_pend, n_tgt, why = PropagateDialog.target_summary(self.ds, p['codes'], p['include_auto'], p['include_empty_edited'])
+        n_pend, n_tgt, why = PropagateDialog.target_summary(self.ds, p['codes'], p['include_auto'], p['include_edited'])
         if not n_tgt:
             QMessageBox.information(self, title, f'전파할 대상이 없습니다 (보류 {n_pend}장{why}).\n'
                                     '대상은 보류 상태이고 편집본·대표가 아닌 이미지입니다. 편집본이 있는 이미지에 다시 전파하려면 '
-                                    '원본 복원(편집본 삭제) 뒤 실행하고, 제품코드를 바꾼 이미지는 바뀐 코드에 대표가 있어야 합니다.')
+                                    '대화상자의 "편집본이 있는 보류 이미지도 포함" 을 켜고(편집본은 삭제됨), 제품코드를 바꾼 이미지는 바뀐 코드에 대표가 있어야 합니다.')
             return
         ckpt = self.settings.value('sam2_ckpt') or sam2_helper.find_checkpoint()
         if not ckpt:
@@ -1174,7 +1176,7 @@ class MainWindow(QMainWindow):
         prog.setAutoReset(False)
         prog.setValue(0)
         w = PropagateWorker(self.ds, p['codes'], p['max_exemplars'], p['include_auto'], self.propagator, ckpt,
-                            include_empty_edited=p['include_empty_edited'],
+                            include_edited=p['include_edited'],
                             mode='holes' if holes_mode else 'sam2', refine=p['refine'], refiner=self.hole_refiner)
         self._prop_worker = w
         prog.canceled.connect(w.stop)
@@ -1212,14 +1214,14 @@ class MainWindow(QMainWindow):
             if holes_mode:
                 QMessageBox.information(self, title + ' 완료',
                                         f'{r["n_done"]}/{r["n_jobs"]}장 자동 라벨 작성 ({r["sec"]:.0f}초)\n'
-                                        f'인스턴스 없음 {r["n_empty"]} · 빈 편집본 삭제 {r["n_cleared"]} · 정합 IoU 평균 {r["iou_mean"]:.2f} · '
+                                        f'인스턴스 없음 {r["n_empty"]} · 편집본 삭제(대체) {r["n_cleared"]} · 정합 IoU 평균 {r["iou_mean"]:.2f} · '
                                         f'정합 낮음(<{holes.ALIGN_WARN_IOU}) {r["n_low"]}장 · SAM2 다듬음 {r["n_refined"]} / 옮긴 대로 {r["n_kept"]} 구멍\n{per}\n\n'
                                         f'판정은 보류 그대로입니다. 목록 정렬을 "자동 점수 낮은 순" 으로 두면 정합이 나쁜 장부터 보입니다. '
                                         f'Space 로 확정하면 자동 라벨이 그대로 내보내집니다.')
                 return
             QMessageBox.information(self, title + ' 완료',
                                     f'{r["n_done"]}/{r["n_jobs"]}장 자동 라벨 작성 ({r["sec"]:.0f}초)\n'
-                                    f'빈 결과 {r["n_empty"]} · 빈 편집본 삭제 {r["n_cleared"]} · 원본과 차이(1-IoU) 평균 {r["diff_mean"]:.2f} · '
+                                    f'빈 결과 {r["n_empty"]} · 편집본 삭제(대체) {r["n_cleared"]} · 원본과 차이(1-IoU) 평균 {r["diff_mean"]:.2f} · '
                                     f'0.05 이상 바뀐 장 {r["n_changed"]}\n{per}\n\n'
                                     f'목록 정렬을 "원본과 차이 큰 순" 으로 두고 검수하세요. '
                                     f'Space 로 확정하면 자동 라벨이 그대로 내보내집니다.')

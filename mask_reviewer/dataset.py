@@ -260,17 +260,17 @@ class Dataset:
         with open(p, encoding='utf-8') as f:
             return not any(len(line.split()) >= 7 for line in f)
 
-    def auto_targets(self, code=None, include_auto=True, include_empty_edited=False):
+    def auto_targets(self, code=None, include_auto=True, include_edited=False):
         """자동 라벨을 넣을 대상: 보류 상태이고 편집본·대표가 아닌 것.
-        include_auto=False 면 이미 자동 라벨이 있는 것도 제외. include_empty_edited=True 면 편집본이 비어 있는 보류 이미지도 포함
-        (자동 라벨을 쓸 때 그 빈 편집본을 지운다)."""
+        include_auto=False 면 이미 자동 라벨이 있는 것도 제외. include_edited=True 면 편집본이 있는 보류 이미지도 포함
+        (빈 편집본이든 아니든; 자동 라벨을 쓸 때 그 편집본을 지워 전파 결과로 대체한다, jhw 2026-10-15)."""
         out = []
         for s in self.stems:
             if code is not None and self.code(s) != code:
                 continue
             if self.state.status(s) != 'pending' or self.state.exemplar(s):
                 continue
-            if self.is_edited(s) and not (include_empty_edited and self.reviewed_is_empty(s)):
+            if self.is_edited(s) and not include_edited:
                 continue
             if not include_auto and self.has_auto(s):
                 continue

@@ -209,12 +209,12 @@ def run(ds_src, shot_dir=None):
     assert w.exemplar_btn.isChecked() and '★' in w.list.currentItem().text()
     if sam_ok:
         from mask_reviewer.propagate import propagate_dataset
-        # 대상 하나에 빈 편집본을 만들어 두고 include_empty_edited 로 지워지는지 본다
+        # 대상 하나에 빈 편집본을 만들어 두고 include_edited 로 지워지는지 본다 (편집본이 있으면 빈 것이든 아니든 기본 대상에서 빠진다)
         t_empty = w.ds.auto_targets(w.ds.code(ex))[0]
         w.ds.save(t_empty, [], 10, 10)
-        assert t_empty not in w.ds.auto_targets(w.ds.code(ex))
+        assert t_empty not in w.ds.auto_targets(w.ds.code(ex)) and t_empty in w.ds.auto_targets(w.ds.code(ex), include_edited=True)
         r = propagate_dataset(w.ds, [w.ds.code(ex)], max_exemplars=1, max_targets=3, propagator=w.propagator,
-                              include_empty_edited=True)
+                              include_edited=True)
         w.propagator = None
         assert r['n_done'] == 3 and r['n_empty'] == 0 and r['n_cleared'] == 1, r
         assert not w.ds.is_edited(t_empty) and w.ds.is_auto(t_empty)

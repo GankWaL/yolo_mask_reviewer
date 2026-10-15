@@ -216,7 +216,7 @@ def apply_holes(img, ref_insts, tgt_insts, refiner=None, min_px=MIN_HOLE_PX):
 
 
 def propagate_holes_dataset(ds, codes=None, max_exemplars=3, include_auto=True, refiner=None, refine=True,
-                            ckpt=None, max_targets=0, progress=None, should_stop=None, include_empty_edited=False,
+                            ckpt=None, max_targets=0, progress=None, should_stop=None, include_edited=False,
                             eps=0.7, min_area=16.0):
     """대표가 있는 제품의 보류 프레임에 대표의 구멍을 옮긴 자동 라벨을 쓴다 (propagate.propagate_dataset 와 같은 꼴).
     refine=True 면 SAM2 로 구멍 경계를 다듬는다 (refiner 를 주면 그것을, 아니면 새로 만든다). 요약 dict 반환."""
@@ -229,7 +229,7 @@ def propagate_holes_dataset(ds, codes=None, max_exemplars=3, include_auto=True, 
         ex = ds.exemplars(code)
         if not ex:
             continue
-        for s in ds.auto_targets(code, include_auto=include_auto, include_empty_edited=include_empty_edited):
+        for s in ds.auto_targets(code, include_auto=include_auto, include_edited=include_edited):
             jobs.append((code, s, ex[:max_exemplars] if max_exemplars > 0 else ex))
     if max_targets > 0:
         jobs = jobs[:max_targets]
@@ -249,8 +249,8 @@ def propagate_holes_dataset(ds, codes=None, max_exemplars=3, include_auto=True, 
             refs.extend(ref_cache[ex])
         img, tgt = ds.load(stem)
         h, w = img.shape[:2]
-        if include_empty_edited and ds.reviewed_is_empty(stem):
-            ds.revert(stem)
+        if include_edited and ds.is_edited(stem):
+            ds.revert(stem)          # 편집본을 지워 전파 결과로 대체
             n_cleared += 1
         if not tgt or not refs:
             ds.write_auto(stem, tgt, w, h, source='holes-align', score=0.0, ref=exs[0], eps=eps, min_area=min_area)

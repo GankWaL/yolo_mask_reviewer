@@ -55,15 +55,15 @@ def _cli(argv):
     pp.add_argument('--codes', default='', help='제품코드 쉼표 목록 (기본: 대표가 있는 모든 제품)')
     pp.add_argument('--max-exemplars', type=int, default=3)
     pp.add_argument('--skip-auto', action='store_true', help='이미 자동 라벨이 있는 이미지는 건너뜀')
-    pp.add_argument('--include-empty-edited', action='store_true',
-                    help='편집본이 비어 있는 보류 이미지도 포함 (그 빈 편집본은 삭제)')
+    pp.add_argument('--include-edited', action='store_true',
+                    help='편집본이 있는 보류 이미지도 포함 (빈 편집본 포함; 그 편집본은 삭제되고 전파 결과로 대체)')
     pp.add_argument('--ckpt', default=None, help='SAM2 체크포인트 (.pt)')
     ph = sub.add_parser('propagate-holes', help='대표(★)의 관통 구멍을 같은 제품의 보류 이미지에 옮김 (바깥 윤곽은 현재 라벨 유지) → labels_auto/')
     ph.add_argument('dataset')
     ph.add_argument('--codes', default='', help='제품코드 쉼표 목록 (기본: 대표가 있는 모든 제품)')
     ph.add_argument('--max-exemplars', type=int, default=3)
     ph.add_argument('--skip-auto', action='store_true', help='이미 자동 라벨이 있는 이미지는 건너뜀')
-    ph.add_argument('--include-empty-edited', action='store_true', help='편집본이 비어 있는 보류 이미지도 포함 (그 빈 편집본은 삭제)')
+    ph.add_argument('--include-edited', action='store_true', help='편집본이 있는 보류 이미지도 포함 (빈 편집본 포함; 그 편집본은 삭제되고 전파 결과로 대체)')
     ph.add_argument('--no-refine', action='store_true', help='SAM2 구멍 경계 다듬기를 끔 (정합으로 옮긴 구멍 그대로)')
     ph.add_argument('--limit', type=int, default=0)
     ph.add_argument('--ckpt', default=None, help='SAM2 체크포인트 (.pt)')
@@ -96,7 +96,7 @@ def _cli(argv):
         from .holes import propagate_holes_dataset
         codes = [c for c in a.codes.split(',') if c] or None
         r = propagate_holes_dataset(ds, codes, a.max_exemplars, include_auto=not a.skip_auto, refine=not a.no_refine, ckpt=a.ckpt,
-                                    max_targets=a.limit, include_empty_edited=a.include_empty_edited,
+                                    max_targets=a.limit, include_edited=a.include_edited,
                                     progress=lambda i, n, st, info: print(f'\r{i + 1}/{n} {st} {info}    ', end='', flush=True))
         print()
         for k, v in r.items():
@@ -106,7 +106,7 @@ def _cli(argv):
         from .propagate import propagate_dataset
         codes = [c for c in a.codes.split(',') if c] or None
         r = propagate_dataset(ds, codes, a.max_exemplars, include_auto=not a.skip_auto, ckpt=a.ckpt,
-                              include_empty_edited=a.include_empty_edited,
+                              include_edited=a.include_edited,
                               progress=lambda i, n, st, info: print(f'\r{i + 1}/{n} {st} {info}    ', end='', flush=True))
         print()
         for k, v in r.items():

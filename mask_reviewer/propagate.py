@@ -93,11 +93,11 @@ class Sam2Propagator:
 
 def propagate_dataset(ds, codes=None, max_exemplars=3, include_auto=True, max_targets=0,
                       ckpt=None, propagator=None, progress=None, should_stop=None, eps=0.7, min_area=16.0,
-                      include_empty_edited=False):
+                      include_edited=False):
     """대표가 있는 제품의 보류 이미지에 자동 라벨을 쓴다.
 
     codes: 제품코드 목록 (None 이면 대표가 있는 모든 제품). include_auto: 이미 자동 라벨이 있는 것도 다시 계산.
-    include_empty_edited: 편집본이 비어 있는 보류 이미지도 대상에 넣고, 자동 라벨을 쓰기 전에 그 빈 편집본을 지운다.
+    include_edited: 편집본이 있는 보류 이미지도 대상에 넣고, 자동 라벨을 쓰기 전에 그 편집본을 지운다 (전파 결과로 대체).
     progress(i, n, stem, info) / should_stop() -> bool 은 선택. 요약 dict 반환.
     """
     own = propagator is None
@@ -110,7 +110,7 @@ def propagate_dataset(ds, codes=None, max_exemplars=3, include_auto=True, max_ta
             ex = ds.exemplars(code)
             if not ex:
                 continue
-            for s in ds.auto_targets(code, include_auto=include_auto, include_empty_edited=include_empty_edited):
+            for s in ds.auto_targets(code, include_auto=include_auto, include_edited=include_edited):
                 jobs.append((code, s, ex[:max_exemplars] if max_exemplars > 0 else ex))
         if max_targets > 0:
             jobs = jobs[:max_targets]
@@ -149,8 +149,8 @@ def propagate_dataset(ds, codes=None, max_exemplars=3, include_auto=True, max_ta
                     sc = float(np.mean([r[2] for r in res]))
                 if best is None or sc > best[0]:
                     best = (sc, ex, res)
-            if include_empty_edited and ds.reviewed_is_empty(stem):
-                ds.revert(stem)          # 빈 편집본은 지워야 자동 라벨이 보인다
+            if include_edited and ds.is_edited(stem):
+                ds.revert(stem)          # 편집본은 자동 라벨보다 우선하므로 지워야 전파 결과가 보인다
                 n_cleared += 1
             if best is None:
                 ds.write_auto(stem, [], w, h, source='sam2', score=0.0, ref=exs[0], eps=eps, min_area=min_area)
