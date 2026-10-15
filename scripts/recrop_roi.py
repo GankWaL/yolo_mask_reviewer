@@ -11,6 +11,7 @@
   옵션: --old x,y,w,h  --new x,y,w,h  --raw-root ~/jhw/data/SL/field  --stems a,b (일부만)
 
 안전장치: 옛 이미지가 raw 의 옛 ROI 자리와 픽셀 단위로 같을 때만 바꾼다 (다르면 건너뛰고 보고). raw 가 없는 stem 도 건너뛴다.
+이미지는 새 파일로 바꿔 넣는다(하드링크 분리) — 이 데이터셋만 바뀌고, 같은 이미지를 하드링크로 공유하는 다른 데이터셋은 그대로다 (2026-10-14).
 """
 import argparse
 import csv
@@ -95,7 +96,12 @@ def main():
             n_drop += len(insts) - text.count('\n')
             texts[p] = text
         if not a.dry:
-            cv2.imwrite(ds.image_path(stem), crop)
+            # 제자리 덮어쓰기 금지: 이미지는 다른 데이터셋(SL_under_predict_auto·train_class*)과 하드링크로 묶여 있을 수 있어
+            # 같은 inode 에 쓰면 그쪽 이미지까지 새 ROI 로 바뀌고 라벨은 옛 ROI 로 남는다 (2026-10-12 사고). 임시 파일에 쓴 뒤 바꿔 넣어 링크를 끊는다.
+            ipath = ds.image_path(stem)
+            tmp = ipath + '.recrop_tmp' + os.path.splitext(ipath)[1]
+            cv2.imwrite(tmp, crop)
+            os.replace(tmp, ipath)
             for p, text in texts.items():
                 with open(p, 'w', encoding='utf-8') as f:
                     f.write(text)

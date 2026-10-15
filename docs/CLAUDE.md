@@ -58,8 +58,16 @@
 
 ## 학습·검증 데이터 운영 (2026-09-29)
 - 학습 데이터 최신본은 `~/jhw/data/SL/yolo26_dataset/train_class<N>`, 고정 검증 데이터는 `valid_class<N>` 이다 (N = 그 폴더의 클래스 수, none 포함.
-  현재 `train_class137`·`valid_class130`). 자동 수집의 보유 수 기준은 `train_current` 심볼릭링크가 가리키는 폴더다. 구성·이력은 그 폴더의 `README.md`, 모델 비교는 `train_results.md`(`scripts/eval_valid.py`).
+  현재 `train_class147`·`valid_class130`). 자동 수집의 보유 수 기준은 `train_current` 심볼릭링크가 가리키는 폴더다. 구성·이력은 그 폴더의 `README.md`, 모델 비교는 `train_results.md`(`scripts/eval_valid.py`).
 - 제품코드당 학습 프레임은 **60장 상한**이다 (`scripts/cap_per_code.py`, ★ 대표 → 사람이 고친 프레임 → 외형 다양성 순).
 - 목표는 **모든 제품코드를 60장까지 채우는 것**이고 현장 수집을 계속한다 (jhw 2026-09-29). 아직 프레임이 없는 코드와 60장에 못 미치는 코드가 남아 있다.
 - 검증셋에는 있는데 학습 데이터에 없는 코드는 검증 프레임이나 정제 제외 프레임을 끌어다 채우지 않는다.
   **정제(`refine_dataset.py`)를 통과하는 프레임이 새로 수집되면 그때 학습 데이터에 추가**한다.
+
+## 하드링크 데이터 주의 (2026-10-14)
+- 검수·학습 데이터셋의 이미지는 `gather_datasets.py`·`add_exemplars_to_review.py`·`cap_per_code.py` 등이 **하드링크**로 만들어
+  `SL_under_predict_auto`·`train_class*`·`valid_class*`·`field_new_*` 가 같은 inode 를 공유한다. **이미지를 제자리에서 덮어쓰지 않는다**
+  (`cv2.imwrite(같은 경로)` 금지). 바꿀 때는 임시 파일에 쓰고 `os.replace` 로 바꿔 넣어 링크를 끊는다. 10-12 `recrop_roi.py` 가 제자리에 써서
+  `train_class137` 대표 112장·`SL_under_predict_auto` 수천 장의 이미지만 새 ROI 로 바뀌고 라벨은 옛 ROI 로 남는 사고가 있었다 (10-14 복구).
+- 이미지와 라벨이 맞는지는 raw(`field/<날짜>/save_pose_debug/<실행>/<idx>_<코드>_raw.png`)의 옛 ROI(605,190,685,685)·새 ROI(628,191,686,686) 크롭과
+  픽셀 비교로 확인할 수 있다 (10-14 복구 때 쓴 방법).
