@@ -58,7 +58,7 @@
 
 ## 학습·검증 데이터 운영 (2026-09-29)
 - 학습 데이터 최신본은 `~/jhw/data/SL/yolo26_dataset/train_class<N>`, 고정 검증 데이터는 `valid_class<N>` 이다 (N = 그 폴더의 클래스 수, none 포함.
-  현재 `train_class147`·`valid_class130`). 자동 수집의 보유 수 기준은 `train_current` 심볼릭링크가 가리키는 폴더다. 구성·이력은 그 폴더의 `README.md`, 모델 비교는 `train_results.md`(`scripts/eval_valid.py`).
+  현재 `train_class161`·`valid_class130`). 자동 수집의 보유 수 기준은 `train_current` 심볼릭링크가 가리키는 폴더다. 구성·이력은 그 폴더의 `README.md`, 모델 비교는 `train_results.md`(`scripts/eval_valid.py`).
 - 제품코드당 학습 프레임은 **60장 상한**이다 (`scripts/cap_per_code.py`, ★ 대표 → 사람이 고친 프레임 → 외형 다양성 순).
 - 목표는 **모든 제품코드를 60장까지 채우는 것**이고 현장 수집을 계속한다 (jhw 2026-09-29). 아직 프레임이 없는 코드와 60장에 못 미치는 코드가 남아 있다.
 - 검증셋에는 있는데 학습 데이터에 없는 코드는 검증 프레임이나 정제 제외 프레임을 끌어다 채우지 않는다.
