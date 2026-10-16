@@ -36,6 +36,7 @@ import collections
 import csv
 import datetime as dt
 import json
+import glob
 import os
 import re
 import shutil
@@ -75,8 +76,8 @@ CFG = dict(
     exemplar_drop=[x for x in E('AL_EXEMPLAR_DROP', '').split(',') if x],   # 2026-09-19 재검수 반영 후 비움 (검수 PC 가 ★ 를 직접 정리)
     device=E('AL_DEVICE', '1'),   # CUDA_DEVICE_ORDER=PCI_BUS_ID 기준 1 = RTX 4070 Ti (0 = PRO 5000 은 다른 사용자, 2026-09-22)
     known_ds=[x for x in E('AL_KNOWN_DS', f'{HOME}/jhw/data/SL/field_data_hole_all_20260921,{HOME}/jhw/data/SL_under_predict').split(',') if x],
-    # 제품코드별 상한(newcodes)의 보유 수 기준 = 학습 데이터 최신본 (train_current → train_class<N> 심볼릭링크, 2026-09-29)
-    count_ds=E('AL_COUNT_DS', f'{HOME}/jhw/data/SL/yolo26_dataset/train_current'),
+    # 제품코드별 상한(newcodes)의 보유 수 기준 = 학습 데이터 최신본 (가장 최근에 만든 train_class<N>; train_current 링크는 2026-10-16 에 없앰)
+    count_ds=E('AL_COUNT_DS', max(glob.glob(f'{HOME}/jhw/data/SL/yolo26_dataset/train_class[0-9]*'), key=os.path.getmtime, default=f'{HOME}/jhw/data/SL/yolo26_dataset/train_class159')),
     newcode_cap=int(E('AL_NEWCODE_CAP', '60')),
 )
 SSH = ['ssh', '-o', 'BatchMode=yes', '-o', 'ServerAliveInterval=30', '-o', 'ConnectTimeout=20']

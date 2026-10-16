@@ -274,7 +274,7 @@ python scripts/eval_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class130 <모델
 작은 구멍은 1/4 프로토타입 해상도가 병목이라 `exp/train_sort5_aug.py … [imgsz] [scale]` 로 학습 해상도와 scale 범위를 바꿔 학습한다
 (r14 = imgsz 1024, scale `0.8,1.7` = 축소는 0.8 까지만·확대는 1.7 유지, jhw 2026-10-08). 1024 로 학습한 모델은 640 추론이 안 되므로 평가·투입 모두 imgsz 를 맞춘다.
 
-수집 현황표는 `scripts/training_data_status.py` 로 만든다 (2026-10-12): 제품코드 324종(CAP 제외)마다 학습(`train_current`)·부족분(60 상한)·현장 수집 누적(`SL_under_predict_auto` 비제외)·검증·검수 대기(최신 `field_new_*`)
+수집 현황표는 `scripts/training_data_status.py` 로 만든다 (2026-10-12): 제품코드 324종(CAP 제외)마다 학습(최신 `train_class<N>`)·부족분(60 상한)·현장 수집 누적(`SL_under_predict_auto` 비제외)·검증·검수 대기(최신 `field_new_*`)
 ·★ 대표 수를 코드순 표로, 대표 프레임은 라벨 윤곽선을 그린 썸네일 갤러리(base64 내장, 클릭 확대)로 단일 HTML(검색·상태·대분류·범위 필터, 열 정렬 포함, 약 8 MB)에 기본 출력 `~/jhw/SL_Inspection_Automation/docs/training_data_status.html` 에 쓴다. 데이터가 바뀌면 다시 돌려 덮어쓴다.
 같은 조건의 다른 크기는 `exp/train_sort5_aug.py … 1024 0.8,1.7 <시작 가중치> <batch>`(26x 는 batch 8, 26m 은 GPU 1 에서 batch 4), 제품코드 모델은
 `train_codes.py DATA.yaml --base yolo26x-seg.pt --imgsz 1024 --scale 0.8,1.7 --batch 8` 로 돌린다 (r14 비교: 26s·26m·26x 5클래스 + 26x 제품코드).
@@ -300,6 +300,17 @@ python scripts/add_none_frames.py ~/jhw/data/SL/yolo26_dataset/train_class136 --
 ```bash
 python scripts/move_none_to_valid.py ~/jhw/data/SL/yolo26_dataset/valid_class143 --train <검수한 학습 폴더> --out-root ~/jhw/data/SL/yolo26_dataset --n 10
 python scripts/cap_per_code.py <검수한 학습 폴더> --out-root ~/jhw/data/SL/yolo26_dataset --exclude-stems <새 검증 폴더>/moved_from_train.txt
+```
+
+학습에만 있고 검증에 없는 제품코드는 `move_codes_to_valid.py` 로 검증에 넣는다 (2026-10-15). 코드마다 학습 프레임이 6장 이상이면 5장을
+학습에서 빼서 옮기고(★ 대표는 학습에 남기고 DINOv2 다양성으로 선택), **5장 이하면 빼지 않고 검증에 중복으로 넣는다** (jhw). 옮긴 stem 은
+`moved_from_train.txt`(→ `cap_per_code.py --exclude-stems`), 중복 stem 은 `dup_in_train.txt`(→ `set_train_val.py --allow-overlap`) 에 남고
+코드별 내역은 `move_report.csv` 다.
+
+```bash
+python scripts/move_codes_to_valid.py <검증 폴더> --train <검수한 학습 폴더(상한 전 전체본)> --out-root ~/jhw/data/SL/yolo26_dataset   # --codes auto
+python scripts/cap_per_code.py <검수한 학습 폴더> --out-root ~/jhw/data/SL/yolo26_dataset --exclude-stems <새 검증 폴더>/moved_from_train.txt
+python scripts/set_train_val.py <새 학습 폴더> --valid <새 검증 폴더> --allow-overlap <새 검증 폴더>/dup_in_train.txt
 ```
 
 ### 고정 검증셋을 학습과 분리하고 학습의 val 로 쓰기 (`rebuild_valid_disjoint.py`, `set_train_val.py`, 2026-10-01)
@@ -460,7 +471,7 @@ python scripts/field_autolabel.py run 20260919  # 날짜 지정 / fetch·collect
 
 `run` 은 fetch 다음에 `newcodes` 를 돈다: 현장 `save_pose_debug/<날짜>/` 의 **인식 성공 프레임**(json 있음, 인식기가 `_skip.json` 으로
 수집 제외 표시한 프레임은 뺌) 파일명에서 12자리 코드를 뽑아, 코드마다 보유 수 — **학습 데이터 최신본**(`AL_COUNT_DS`, 기본
-`yolo26_dataset/train_current` 심볼릭링크 → `train_class<N>`)의 프레임에 그 뒤(학습 데이터의 가장 늦은 촬영일 다음 날부터) 새로 모은 DS 프레임을
+`yolo26_dataset/` 의 가장 최근 `train_class<N>`; 옛 `train_current` 링크는 10-16 에 없앰)의 프레임에 그 뒤(학습 데이터의 가장 늦은 촬영일 다음 날부터) 새로 모은 DS 프레임을
 더한 것, 재지정 코드 기준·reject 제외 (2026-09-29; 그전에는 `AL_KNOWN_DS` 전체를 세어 정제·검수에서 빠진 프레임까지 보유로 쳤다) — 가 **`AL_NEWCODE_CAP`(60) 미만이면 부족분만큼** 시간 균등으로 raw+json 을 회수한다. 미수집 코드(보유 0)와 60장 미만
 코드를 같은 규칙으로 채우므로, 이미 모은 코드도 60장이 될 때까지 계속 모인다. json 의 런타임 마스크(`mask_rle`)를 ROI 로 잘라
 라벨(대분류 = json `large_sort`)로 써서 DS 에 넣는다 (reason `newcode`, 보류, 메모 "★ 대표 필요"). 검수 PC 에서 이 프레임들로 ★ 대표를

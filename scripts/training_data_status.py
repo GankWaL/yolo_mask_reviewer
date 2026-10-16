@@ -6,7 +6,7 @@
 단일 HTML(검색·상태 필터·열 정렬은 페이지 안의 작은 스크립트). 브라우저로 열면 된다.
 ★ 대표 프레임은 라벨 윤곽선을 그린 썸네일(JPEG, 긴 변 --thumb px)을 base64 로 내장해 갤러리로 보여 준다 (클릭하면 확대). 300장 ≈ 5 MB.
 
-기준: 학습 = train_current(train_class<N>, 검수 재지정 코드 반영), 검증 = valid_class<N>, 검수 대기 = field_new_<최신> 의 보류 프레임(exemplar_ref 제외),
+기준: 학습 = 최신 train_class<N>(검수 재지정 코드 반영), 검증 = valid_class<N>, 검수 대기 = field_new_<최신> 의 보류 프레임(exemplar_ref 제외),
 현장 수집 누적 = SL_under_predict_auto 의 비제외 프레임(코드 대응표 반영). 제품코드 목록은 codes_none_20260929.yaml(none 제외 324, dropped CAP 4 는 뺀다).
 """
 import argparse
@@ -67,8 +67,10 @@ def thumb_b64(img_path, label_path, size, names=None):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--out', default=f'{H}/jhw/SL_Inspection_Automation/docs/training_data_status.html')
-    ap.add_argument('--train', default=f'{H}/jhw/data/SL/yolo26_dataset/train_current')
-    ap.add_argument('--valid', default=sorted(glob.glob(f'{H}/jhw/data/SL/yolo26_dataset/valid_class*'))[-1])
+    ap.add_argument('--train', default=max(glob.glob(f'{H}/jhw/data/SL/yolo26_dataset/train_class[0-9]*'), key=os.path.getmtime),
+                    help='학습 폴더 (기본 가장 최근에 만든 train_class<N>; train_current 링크는 2026-10-16 에 없앰)')
+    ap.add_argument('--valid', default=max(glob.glob(f'{H}/jhw/data/SL/yolo26_dataset/valid_class*'), key=os.path.getmtime),
+                    help='고정 검증 폴더 (기본 가장 최근에 만든 valid_class<N>; 이름순이면 130 이 128 보다 뒤라 틀린다)')
     ap.add_argument('--pending', default=sorted(d for d in glob.glob(f'{H}/jhw/data/SL/field_new_[0-9]*')
                                                if os.path.isdir(d) and re.fullmatch(r'field_new_\d{8}', os.path.basename(d)))[-1],
                     help='검수 대기 데이터셋 (기본 최신 field_new_<날짜> 폴더; _excess 사이드카·백업 tar 는 제외)')
@@ -95,7 +97,7 @@ def main():
     va_rows, va_st, va_code, _ = load_ds(a.valid)
     valid = collections.Counter(va_code.values())
     pd_rows, pd_st, pd_code, _ = load_ds(a.pending)
-    pending = collections.Counter(pd_code[r['stem']] for r in pd_rows if r.get('reason') != 'exemplar_ref' and pd_st.get(r['stem'], {}).get('status', 'pending') != 'reject')
+    pending = collections.Counter(pd_code[r['stem']] for r in pd_rows if r.get('reason') != 'exemplar_ref' and pd_st.get(r['stem'], {}).get('status', 'pending') == 'pending')   # 보류만 (확정은 이미 병합됐거나 병합 대상)
     sel = collections.defaultdict(lambda: [0, 0])   # code → [후보, 정제 통과]
     sp = os.path.join(a.pending, 'select_report.csv')
     if os.path.exists(sp):

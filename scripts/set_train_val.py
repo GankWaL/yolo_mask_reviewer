@@ -4,7 +4,8 @@
   python scripts/set_train_val.py TRAIN --valid VALID
 
   TRAIN  학습 폴더 (train_class<N>, 루트 = 제품코드, sort5/ = 5클래스). 제자리에서 고친다.
-  VALID  고정 검증 폴더 (valid_class<N>, 같은 구조). 학습 폴더와 겹치는 프레임이 있으면 멈춘다.
+  VALID  고정 검증 폴더 (valid_class<N>, 같은 구조). 학습 폴더와 겹치는 프레임이 있으면 멈춘다
+         (--allow-overlap FILE 에 적힌 stem 은 예외: 학습 프레임이 5장 이하라 양쪽에 다 넣은 코드, move_codes_to_valid.py).
 
 결과: TRAIN/images/train 에 전 프레임, images/val 은 비움(삭제), dataset.yaml 의 val = VALID/images/val (절대 경로), manifest.csv 의 split 은 train.
 학습 중 val 수치가 곧 고정 검증 수치가 되고, 학습에는 검증셋을 뺀 모든 프레임이 쓰인다 (jhw 2026-10-01).
@@ -26,12 +27,19 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('train')
     ap.add_argument('--valid', required=True)
+    ap.add_argument('--allow-overlap', default=None, metavar='FILE',
+                    help='학습과 겹쳐도 되는 검증 stem 목록 (move_codes_to_valid.py 의 dup_in_train.txt: 학습 프레임이 5장 이하인 코드, jhw 2026-10-15)')
     a = ap.parse_args()
     t, v = Dataset(a.train), Dataset(a.valid)
+    allow = set()
+    if a.allow_overlap:
+        with open(a.allow_overlap, encoding='utf-8') as f:
+            allow = {l.strip() for l in f if l.strip()}
     torig = {s.partition('__')[2] for s in t.stems}
-    dup = [s for s in v.stems if s.partition('__')[2] in torig]
+    dup = [s for s in v.stems if s.partition('__')[2] in torig and s not in allow]
     if dup:
         sys.exit(f'검증셋 {len(dup)}장이 학습 폴더에 있습니다 (예 {dup[:3]}). 먼저 rebuild_valid_disjoint.py 로 검증셋을 다시 만드세요.')
+    n_allowed = sum(1 for s in v.stems if s.partition('__')[2] in torig and s in allow)
     for sub in ('', 'sort5'):
         root = os.path.join(a.train, sub)
         n = 0
@@ -65,7 +73,7 @@ def main():
             yaml.safe_dump(y, f, allow_unicode=True, sort_keys=False)
         print(f'{root}: val {n}장 → train, val = {y["val"]}')
     t2 = Dataset(a.train)
-    print(f'train {len(t2.stems)}장 (split {sorted(set(t2._split.values()))}), 검증 {len(v.stems)}장, 겹침 0')
+    print(f'train {len(t2.stems)}장 (split {sorted(set(t2._split.values()))}), 검증 {len(v.stems)}장, 겹침 0 (허용된 중복 {n_allowed}장)')
 
 
 if __name__ == '__main__':
