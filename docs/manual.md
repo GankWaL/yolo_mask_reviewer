@@ -208,6 +208,24 @@ python scripts/add_exemplars_to_review.py ~/jhw/data/SL/yolo26_dataset/recheck_h
 코드·판정·대표·자동 라벨 메타를 state 에 유지, `aux/` 복사, manifest 에 source·code·status·label_src·has_holes. 같은 stem 이
 여러 SRC 에 있으면 앞의 SRC 가 이기고 `--prefix` 면 SRC 이름을 붙여 모두 남긴다. YOLO 폴더(images/<split>)도 SRC 로 받는다.
 
+### 클래스 인덱스 마스크(결함 라벨링 도구) → 검수 데이터셋 (`scripts/import_mask_dataset.py`, 2026-10-16)
+
+Workspace 라벨링 도구(`Workspace/AI/labeling_tool`)가 만든 결함 데이터(`images/` + `masks/<stem>.png`, 픽셀값 v = 클래스 v-1)를
+이 툴이 여는 데이터셋(images/ labels/ manifest.csv dataset.yaml)으로 바꾼다. 클래스 이름은 `defect.yaml`(`classes:`)에서 읽고
+(0 dirt, 1 scratch, 2 waterstain, 3 waterflow, 4 blackdot, 5 stain, 6 edgecrack), 같은 클래스라도 떨어진 조각(8-연결)은 각각
+한 인스턴스로 만든다(16px² 미만 조각은 버림). 이미지는 하드링크(`--copy` 면 복사), 원본 폴더는 건드리지 않는다. 마스크가 빈 프레임도
+빈 라벨로 들어간다. 제품코드는 없으므로 제품 필터에는 `(없음)` 하나만 보인다. manifest 에 source(날짜 폴더)·labeler(파일명의 작업자)·
+classes·mask_src 를 남긴다.
+
+```bash
+python scripts/import_mask_dataset.py --out ~/jhw/data/SL_defects/relabeling_20251219_20260106 \
+    --names ~/Workspace/AI/labeling_tool/defect.yaml  ~/Workspace/.data/1_SL/RELABELING/{251219/imageSrc_defect,251222/imageSrc_defect,251223,251224,260105,260106}
+```
+
+2026-10-16 `SL_defects/relabeling_20251219_20260106`: 4,274장(빈 마스크 1,416), 인스턴스 4,437. 라벨을 다시 그려 원본 마스크와 비교한 IoU 0.98(최소 0.93).
+검수 PC 로는 `REVIEW_DATA='~/jhw/data/SL_defects' scripts/review_sync.sh push-bundle <데이터셋>` 으로 보낸다 (검수 PC `~/jhw/data/SL_defects/<이름>`,
+dataset.yaml path 자동 갱신). 검수 결과를 가져올 때도 같은 `REVIEW_DATA` 로 `pull-bundle <이름>` 을 쓴다.
+
 ### 클래스 = 12자리 제품코드, CAP 제외 (`scripts/convert_dataset_classes.py`, 2026-09-23)
 
 새로 들어오는 검수 데이터셋의 인스턴스 클래스는 대분류 5클래스가 아니라 **12자리 제품코드(322 클래스,
